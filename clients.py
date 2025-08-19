@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Annotated, Awaitable, Callable
 
 from auth import current_user
-from config_generator import ConfigGenerator, ClientConfig
+from config_generator import ConfigGenerator
 from fastapi import (
     HTTPException,
     Depends,
@@ -22,9 +22,10 @@ from fastapi.security import (
 )
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from utils.parse_credentials import parse_user_credentials
+from models.client_config import ClientConfig
 from sockets import SocketManager, CustomJSONEncoder
-from utils.hostname import is_valid_hostname
+from hostname import is_valid_hostname
+from parse_credentials import parse_user_credentials
 
 # Load configuration from environment variables or a file
 JWT_SECRET = os.getenv("JWT_SECRET", "ExgEFKuRnzSZhjAq")
