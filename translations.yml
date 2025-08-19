@@ -1,0 +1,16 @@
+errors:
+  invalid_auth_token:
+    en: Invalid authentication token
+    sk: Neplatný autentifikačný token
+  invalid_username_or_password:
+    en: Invalid username or password
+    sk: Nesprávne používateľské meno alebo heslo
+  hostname_required:
+    en: Missing required parameter 'hostname'
+    sk: Chýbajúci povinný parameter 'hostname'
+  invalid_hostname:
+    en: Invalid format of parameter 'hostname'
+    sk: Nesprávny formát parametru 'hostname'
+  forbidden:
+    en: Forbidden
+    sk: Zakázané
