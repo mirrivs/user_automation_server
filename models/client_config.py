@@ -1,6 +1,6 @@
 
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
 
 
 class User(BaseModel):
@@ -8,38 +8,38 @@ class User(BaseModel):
     password: str
 
 class IdleCycle(BaseModel):
-    procrastination_chance: Optional[float]
+    procrastination_chance: Optional[float] = Field(default=None)
 
 class General(BaseModel):
-    user: Optional[User]
-    is_conversation_starter: Optional[bool]
-    organization_mail_server_url: Optional[str]
-    organization_web_url: Optional[str]
-    archive_path: Optional[str]
+    is_conversation_starter: Optional[bool] = Field(default=None)
 
 class AttackRansomware(BaseModel):
-    malicious_email_subject: Optional[str]
+    malicious_email_subject: Optional[str] = Field(default=None)
 
 class AttackPhishing(BaseModel):
-    malicious_email_subject: Optional[str]
+    malicious_email_subject: Optional[str] = Field(default=None)
+
+class ProcrastinationPreference(BaseModel):
+    youtube: Optional[float] = Field(default=1)
+    kittens: Optional[float] = Field(default=1)
 
 class Procrastination(BaseModel):
-    procrastination_preference: Optional[float]
-    procrastination_max_time: Optional[float]
-    procrastination_min_time: Optional[float]
+    preference: Optional[ProcrastinationPreference] = Field(default=None)
+    duration_min: Optional[float] = Field(default=None)
+    duration_max: Optional[float] = Field(default=None)
 
 class WorkEmails(BaseModel):
-    email_receivers: Optional[list[str]]
+    email_receivers: Optional[List[str]] = Field(default=None)
 
 class Behaviours(BaseModel):
-    procrastination: Optional[Procrastination]
-    work_emails: Optional[WorkEmails]
-    attack_phishing: Optional[AttackPhishing]
+    procrastination: Optional[Procrastination] = Field(default=None)
+    work_emails: Optional[WorkEmails] = Field(default=None)
+    attack_phishing: Optional[AttackPhishing] = Field(default=None)
 
 class UserBehaviour(BaseModel):
-    general: Optional[General]
-    idle_cycle: Optional[IdleCycle]
-    behaviours: Optional[Behaviours]
+    general: Optional[General] = Field(default=None)
+    idle_cycle: Optional[IdleCycle] = Field(default=None)
+    behaviours: Optional[Behaviours] = Field(default=None)
 
 class ClientConfig(BaseModel):
-    behaviour: Optional[UserBehaviour] = None
+    behaviour: Optional[UserBehaviour] = Field(default=None)

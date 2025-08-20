@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from i18n import I18nMiddleware
 
 from auth import router as auth_router
-from clients import router as clients_router
+from client import router as client_router
+from client_behaviour import router as behaviour_router
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -31,7 +32,8 @@ app.add_middleware(
 app.add_middleware(I18nMiddleware)
 
 app.include_router(auth_router)
-app.include_router(clients_router)
+app.include_router(client_router, prefix="/client", tags=["Client"])
+app.include_router(behaviour_router, prefix="/client_behaviour", tags=["Client Behaviour"])
 
 logging.info(
     f"Started {config['DEFAULT']['title']} server {config['DEFAULT']['version']}"

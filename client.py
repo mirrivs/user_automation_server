@@ -47,16 +47,13 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
         username: Annotated[str, Form()],
         password: Annotated[str, Form()],
         hostname: Annotated[str, Form()],
-        scope: Annotated[str, Form()] = "",
-        client_id: Annotated[str | None, Form()] = None,
-        client_secret: Annotated[str | None, Form()] = None,
     ):
         super().__init__(
             username=username,
             password=password,
-            scope=scope,
-            client_id=client_id,
-            client_secret=client_secret,
+            scope="",
+            client_id=None,
+            client_secret=None,
         )
         self.hostname = hostname
 
@@ -100,17 +97,17 @@ async def send_client_config(websocket, username):
     pass
 
 
-async def update_client_config(data, websocket):
+async def update_client_config(data, websocket, username):
     """Update client config"""
     # Implement your config update logic here
     pass
 
 
-clients_status_sockets = SocketManager(
-    router, "/clients_status_socket", True, send_client_status, update_client_status
+client_status_sockets = SocketManager(
+    router, "/client_status_socket", True, send_client_status, update_client_status
 )
-clients_sockets = SocketManager(
-    router, "/clients_socket", True, send_client_config, update_client_config
+client_sockets = SocketManager(
+    router, "/client_socket", True, send_client_config, update_client_config
 )
 
 class ClientsInfoResponse(BaseModel):
@@ -118,11 +115,10 @@ class ClientsInfoResponse(BaseModel):
 
 @router.get(
     "/",
-    tags=["Clients"],
     response_model=ClientsInfoResponse,
-    description='Get list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/clients_status_socket");`',
+    description='Get list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/client_status_socket");`',
 )
-async def get_clients_info(
+async def get_client_info(
     username: str = Depends(current_user),
 ) -> ClientInfo:
     return {"clients_info": [client for client in clients_info.values()]}
@@ -134,9 +130,8 @@ class ConnectResponse(BaseModel):
 
 @router.post(
     "/connect",
-    tags=["Clients"],
     response_model=ConnectResponse,
-    description='Add client to the list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/clients_socket");`<br><br>**Required fields:** username, password, hostname',
+    description='Add client to the list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/client_socket");`<br><br>**Required fields:** username, password, hostname',
 )
 async def connect_client(
     form_data: Annotated[OAuth2PasswordRequestFormWithHostname, Depends()],
@@ -198,7 +193,7 @@ async def connect_client(
     }
 
 
-@router.delete("/disconnect", tags=["Clients"])
+@router.delete("/disconnect")
 async def disconnect_client(hostname: str) -> dict:
     global clients_info
     if hostname in clients_info:
@@ -206,120 +201,3 @@ async def disconnect_client(hostname: str) -> dict:
         return {"message": f"Client {hostname} disconnected"}
     else:
         raise HTTPException(status_code=404, detail="Client not found")
-
-
-@router.post(
-    "/update_behaviour_config",
-    tags=["Clients"],
-    description="Update configuration parameters for a specific behaviour on a connected  This allows real-time modification of behaviour settings without restarting the ",
-    dependencies=[Depends(current_user)],
-)
-async def update_behaviour_config(
-    client_username: str, 
-    behaviour_id: str, 
-    behaviour_config: Optional[dict]
-) -> ConnectResponse:
-    """
-    Update behaviour configuration for a specific 
-    
-    Args:
-        client_username: The username/email of the target client
-        behaviour_id: The ID of the behaviour to update (e.g., 'procrastination', 'work_emails')
-        behaviour_config: Dictionary containing the new configuration parameters
-    
-    Returns:
-        Success message with details about the update operation
-    """
-    sockets = [
-        socket
-        for socket, username in clients_sockets.connected_sockets.items()
-        if username == client_username
-    ]
-
-    if not sockets:
-        return {
-            "message": f"Client '{client_username}' is not currently connected",
-            "status": "error",
-            "client_username": client_username,
-            "behaviour_id": behaviour_id
-        }
-
-    config_summary = f" with {len(behaviour_config)} parameters" if behaviour_config else " (config cleared)"
-    
-    for socket in sockets:
-        await socket.send_json({
-            "action": "behaviour_config_update", 
-            "behaviour_id": behaviour_id, 
-            "config": behaviour_config
-        })
-
-    return {
-        "message": f"Successfully updated '{behaviour_id}' behaviour configuration for client '{client_username}'{config_summary}",
-        "status": "success",
-        "client_username": client_username,
-        "behaviour_id": behaviour_id,
-        "config_keys": list(behaviour_config.keys()) if behaviour_config else [],
-        "clients_notified": len(sockets)
-    }
-
-
-@router.post(
-    "/run_behaviour",
-    tags=["Clients"],
-    description="Execute a specific behaviour on a connected  Optionally updates the behaviour configuration before execution. The client will terminate any currently running behaviour and start the specified one.",
-    dependencies=[Depends(current_user)],
-)
-async def run_behaviour(
-    client_username: str, 
-    behaviour_id: str, 
-    behaviour_config: dict = {}
-):
-    """
-    Execute a behaviour on a specific client with optional configuration update.
-    
-    Args:
-        client_username: The username/email of the target client
-        behaviour_id: The ID of the behaviour to execute (e.g., 'attack_phishing', 'procrastination')
-        behaviour_config: Optional configuration parameters to apply before execution
-    
-    Returns:
-        Success message with details about the execution request
-    """
-    sockets = [
-        socket
-        for socket, username in clients_sockets.connected_sockets.items()
-        if username == client_username
-    ]
-
-    if not sockets:
-        return {
-            "message": f"Client '{client_username}' is not currently connected",
-            "status": "error",
-            "client_username": client_username,
-            "behaviour_id": behaviour_id
-        }
-
-    # Update configuration if provided
-    config_updated = False
-    if behaviour_config:
-        await update_behaviour_config(client_username, behaviour_id, behaviour_config)
-        config_updated = True
-
-    # Send run command to all connected sockets for this client
-    for socket in sockets:
-        await socket.send_json({
-            "action": "run_behaviour", 
-            "behaviour_id": behaviour_id
-        })
-
-    config_note = f" (with updated configuration)" if config_updated else ""
-    
-    return {
-        "message": f"Successfully initiated '{behaviour_id}' behaviour on client '{client_username}'{config_note}",
-        "status": "success",
-        "client_username": client_username,
-        "behaviour_id": behaviour_id,
-        "config_updated": config_updated,
-        "config_keys": list(behaviour_config.keys()) if behaviour_config else [],
-        "clients_notified": len(sockets)
-    }

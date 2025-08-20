@@ -1,13 +1,15 @@
 config_generation:
   conversation_starter_frequency: 2
 
-  user_behaviour:
-    procrastination_chance:
-      min: -1
-      max: -1
-    procrastination_duration:
-      min: 60
-      max: 80
-    procrastination_preference:
-      youtube: 1
-      kittens: 1
+  behaviour:
+    idle_cycle:
+      procrastination_chance:
+        min: -1
+        max: -1
+    behaviours:
+      procrastination:
+        duration_min: 60
+        duration_max: 80
+        preference:
+          youtube: 1
+          kittens: 1
