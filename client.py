@@ -119,7 +119,7 @@ class ClientsInfoResponse(BaseModel):
     description='Get list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/client_status_socket");`',
 )
 async def get_client_info(
-    username: str = Depends(current_user),
+    # username: str = Depends(current_user),
 ) -> ClientInfo:
     return {"clients_info": [client for client in clients_info.values()]}
 

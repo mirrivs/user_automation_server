@@ -14,6 +14,7 @@ router = APIRouter()
 
 class AvailableBehaviors(str, Enum):
     ATTACK_PHISHING = "attack_phishing"
+    ATTACK_PHISHING_ATTACHMENT = "attack_phishing_attachment"
     ATTACK_RANSOMWARE = "attack_ransomware"
     ATTACK_REVERSE_SHELL = "attack_reverse_shell"
     PROCRASTINATION = "procrastination"
@@ -23,10 +24,11 @@ class AvailableBehaviors(str, Enum):
 # Configuration models for each behavior
 class AttackPhishingConfig(BaseModel):
     """Configuration for phishing attack behavior"""
-    target_domains: List[str] = Field(..., description="List of domains to target")
-    email_template: str = Field(..., description="Email template to use")
-    frequency_minutes: int = Field(default=30, ge=1, le=1440, description="Frequency in minutes (1-1440)")
-    max_attempts: int = Field(default=10, ge=1, le=100, description="Maximum attempts per target")
+    malicious_email_subject: str = Field(..., description="Malicious email subject")
+
+class AttackPhishingAttachmentConfig(BaseModel):
+    """Configuration for phishing attachment attack behavior"""
+    malicious_email_subject: str = Field(..., description="Malicious email subject")
 
 class AttackRansomwareConfig(BaseModel):
     """Configuration for ransomware attack behavior"""
@@ -136,7 +138,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
     "/update_config",
     response_model=BehaviorResponse,
     description="Update configuration parameters for a specific behaviour on a connected client. Configuration is validated based on the behavior type.",
-    dependencies=[Depends(current_user)],
+    # dependencies=[Depends(current_user)],
 )
 async def update_behaviour_config(
     client_username: str,
@@ -179,7 +181,7 @@ async def update_behaviour_config(
     
     for socket in sockets:
         await socket.send_json({
-            "action": "behaviour_config_update", 
+            "action": "update_behaviour_config", 
             "behaviour_id": behaviour_id.value,
             "config": validated_config
         })
@@ -198,7 +200,7 @@ async def update_behaviour_config(
     "/run",
     response_model=BehaviorRunResponse,
     description="Execute a specific behaviour on a connected client. Behaviors 'procrastination' and 'work_organization_web' can run without any configuration. Attack behaviors and 'work_emails' require configuration.",
-    dependencies=[Depends(current_user)],
+    # dependencies=[Depends(current_user)],
 )
 async def run_behaviour(
     client_username: str,
