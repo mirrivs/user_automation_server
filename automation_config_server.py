@@ -9,9 +9,7 @@ import datetime
 import yaml
 import json
 
-# Get parent folder
 parent_dir = os.path.dirname(os.path.abspath(__file__))
-# Go up two folders for config file
 config_file = os.path.join(parent_dir, "config.yml")
 
 # Read config
@@ -33,14 +31,12 @@ if "logging" in cfg.keys():
                 os.makedirs(log_folder)
         except Exception as ex:
             print(f"Can not create log folder {log_folder}: {ex}")
-        # Ignore possible logger issue and start the autoconfig anyway
         logging.config.dictConfig(cfg["logging"])
     except Exception as ex:
         log_folder = None
         print(f"Exception raised while creating logger: {ex}")
         sys.exit(2)
 
-# Create the default logger to stdout and to the default log file
 log_file = os.path.join(log_folder, "logs.log") if log_folder else None
 
 logging.basicConfig(

@@ -36,3 +36,5 @@ venv.bak/
 
 # Log files
 *.log
+
+user_credentials.yml

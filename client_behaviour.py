@@ -12,6 +12,7 @@ from fastapi import (
 
 router = APIRouter()
 
+
 class AvailableBehaviors(str, Enum):
     ATTACK_PHISHING = "attack_phishing"
     ATTACK_PHISHING_ATTACHMENT = "attack_phishing_attachment"
@@ -21,14 +22,17 @@ class AvailableBehaviors(str, Enum):
     WORK_EMAILS = "work_emails"
     WORK_ORGANIZATION_WEB = "work_organization_web"
 
+
 # Configuration models for each behavior
 class AttackPhishingConfig(BaseModel):
     """Configuration for phishing attack behavior"""
     malicious_email_subject: str = Field(..., description="Malicious email subject")
 
+
 class AttackPhishingAttachmentConfig(BaseModel):
     """Configuration for phishing attachment attack behavior"""
     malicious_email_subject: str = Field(..., description="Malicious email subject")
+
 
 class AttackRansomwareConfig(BaseModel):
     """Configuration for ransomware attack behavior"""
@@ -37,12 +41,14 @@ class AttackRansomwareConfig(BaseModel):
     ransom_message: str = Field(..., description="Ransom note message")
     delay_seconds: int = Field(default=60, ge=0, le=3600, description="Delay before execution (0-3600 seconds)")
 
+
 class AttackReverseShellConfig(BaseModel):
     """Configuration for reverse shell attack behavior"""
     target_host: str = Field(..., description="Target host IP or domain")
     target_port: int = Field(..., ge=1, le=65535, description="Target port (1-65535)")
     connection_timeout: int = Field(default=30, ge=5, le=300, description="Connection timeout in seconds")
     retry_attempts: int = Field(default=3, ge=1, le=10, description="Number of retry attempts")
+
 
 class ProcrastinationConfig(BaseModel):
     """Configuration for procrastination behavior - all fields optional with defaults"""
@@ -51,6 +57,7 @@ class ProcrastinationConfig(BaseModel):
     randomize_order: bool = Field(default=True, description="Randomize website visit order")
     break_frequency_minutes: int = Field(default=60, ge=5, le=480, description="Break frequency in minutes")
 
+
 class WorkEmailsConfig(BaseModel):
     """Configuration for work emails behavior - requires email accounts"""
     email_accounts: List[str] = Field(..., description="List of email accounts to monitor")
@@ -58,12 +65,14 @@ class WorkEmailsConfig(BaseModel):
     auto_reply: bool = Field(default=False, description="Enable auto-reply")
     priority_keywords: List[str] = Field(default=["urgent", "asap", "important"], description="Priority keywords")
 
+
 class WorkOrganizationWebConfig(BaseModel):
     """Configuration for work organization web behavior - all fields optional with defaults"""
     websites: List[str] = Field(default=[], description="Work-related websites to organize")
     bookmark_categories: List[str] = Field(default=["productivity", "tools", "documentation"], description="Bookmark categories")
     cleanup_frequency_hours: int = Field(default=24, ge=1, le=168, description="Cleanup frequency in hours")
     backup_enabled: bool = Field(default=True, description="Enable backup of bookmarks")
+
 
 # Response models
 class BehaviorResponse(BaseModel):
@@ -76,9 +85,11 @@ class BehaviorResponse(BaseModel):
     clients_notified: int
     validated_config: Optional[Dict[str, Any]] = None
 
+
 class BehaviorRunResponse(BehaviorResponse):
     """Response for behavior run operations"""
     config_updated: bool = False
+
 
 # Define which behaviors require mandatory configuration
 BEHAVIORS_REQUIRING_CONFIG = {
@@ -104,10 +115,11 @@ BEHAVIOR_CONFIG_MAPPING = {
     AvailableBehaviors.WORK_ORGANIZATION_WEB: WorkOrganizationWebConfig,
 }
 
+
 # Helper function to validate config based on behavior
 def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config: Optional[dict]) -> Optional[dict]:
     """Validate configuration against the specific behavior model"""
-    
+
     # If no config provided
     if behaviour_config is None:
         if behaviour_id in BEHAVIORS_WITHOUT_CONFIG:
@@ -119,12 +131,12 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
                 detail=f"Configuration is required for {behaviour_id.value}"
             )
         return None
-    
+
     # If config is provided, validate it
     config_model = BEHAVIOR_CONFIG_MAPPING.get(behaviour_id)
     if not config_model:
         return behaviour_config
-        
+
     try:
         validated_config = config_model(**behaviour_config)
         return validated_config.dict()
@@ -133,6 +145,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
             status_code=422,
             detail=f"Invalid configuration for {behaviour_id.value}: {str(e)}"
         )
+
 
 @router.post(
     "/update_config",
@@ -214,8 +227,8 @@ async def run_behaviour(
         client_username: The username/email of the target client
         behaviour_id: The behavior to execute
         behaviour_config: Optional behavior-specific configuration. Not needed for
-                         'procrastination' and 'work_organization_web' behaviors.
-                         Required for attack behaviors and 'work_emails'.
+                        'procrastination' and 'work_organization_web' behaviors.
+                        Required for attack behaviors and 'work_emails'.
     
     Returns:
         BehaviorRunResponse with details about the execution request
