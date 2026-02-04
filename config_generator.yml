@@ -1,7 +1,7 @@
 config_generation:
   conversation_starter_frequency: 2
 
-  behaviour:
+  automation:
     idle_cycle:
       procrastination_chance:
         min: -1
