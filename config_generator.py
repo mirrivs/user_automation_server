@@ -4,8 +4,7 @@ from models.client_config import User
 
 
 class ConfigGenerator:
-    def __init__(self, user_credentials: User, generator_config: dict):
-        self.user_credentials = user_credentials
+    def __init__(self, generator_config: dict):
         self.generator_config = generator_config
 
         self.conversation_starter_frequency = (
@@ -14,14 +13,15 @@ class ConfigGenerator:
         # Updated to use new structure: behaviour.behaviours instead of user_behaviour
         self.automation_config = self.generator_config.get("automation", {})
         self.idle_cycle_template = self.automation_config.get("idle_cycle", {})
-        self.behaviours_templates = self.automation_config.get("behaviours", {})
+        self.behaviours_templates = self.automation_config.get(
+            "behaviours", {})
 
         self.is_conversation_starter_counter = 0
         self.email_receivers_list = []
 
     def generate_config(self, email: str) -> dict:
         client_config = {}
-        
+
         # Add general configuration
         general_config = {
             "is_conversation_starter": False,
@@ -30,7 +30,8 @@ class ConfigGenerator:
         # Add idle_cycle configuration from template
         idle_cycle_config = {}
         for param_name, param_value in self.idle_cycle_template.items():
-            idle_cycle_config[param_name] = self._handle_param_value(param_value)
+            idle_cycle_config[param_name] = self._handle_param_value(
+                param_value)
 
         # Initialize behaviours structure
         behaviours_config = {}
@@ -49,7 +50,8 @@ class ConfigGenerator:
 
         # Generate configuration for all behaviours defined in the template
         for behaviour_name, behaviour_template in self.behaviours_templates.items():
-            behaviour_config = self._generate_behaviour_config(behaviour_template)
+            behaviour_config = self._generate_behaviour_config(
+                behaviour_template)
             if behaviour_config:
                 behaviours_config[behaviour_name] = behaviour_config
 
@@ -73,11 +75,11 @@ class ConfigGenerator:
     def _generate_behaviour_config(self, behaviour_template: dict) -> dict:
         """Generate configuration for a specific behaviour based on its template."""
         behaviour_config = {}
-        
+
         for param_name, param_value in behaviour_template.items():
             generated_value = self._handle_param_value(param_value)
             behaviour_config[param_name] = generated_value
-            
+
         return behaviour_config
 
     def _handle_param_value(self, param_value):

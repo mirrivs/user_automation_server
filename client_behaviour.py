@@ -26,52 +26,71 @@ class AvailableBehaviors(str, Enum):
 # Configuration models for each behavior
 class AttackPhishingConfig(BaseModel):
     """Configuration for phishing attack behavior"""
-    malicious_email_subject: str = Field(..., description="Malicious email subject")
+    malicious_email_subject: str = Field(...,
+                                         description="Malicious email subject")
 
 
 class AttackPhishingAttachmentConfig(BaseModel):
     """Configuration for phishing attachment attack behavior"""
-    malicious_email_subject: str = Field(..., description="Malicious email subject")
+    malicious_email_subject: str = Field(...,
+                                         description="Malicious email subject")
 
 
 class AttackRansomwareConfig(BaseModel):
     """Configuration for ransomware attack behavior"""
-    file_extensions: List[str] = Field(default=[".txt", ".doc", ".pdf"], description="File extensions to target")
-    encryption_key: str = Field(..., min_length=16, description="Encryption key (minimum 16 characters)")
+    file_extensions: List[str] = Field(
+        default=[".txt", ".doc", ".pdf"], description="File extensions to target")
+    encryption_key: str = Field(..., min_length=16,
+                                description="Encryption key (minimum 16 characters)")
     ransom_message: str = Field(..., description="Ransom note message")
-    delay_seconds: int = Field(default=60, ge=0, le=3600, description="Delay before execution (0-3600 seconds)")
+    delay_seconds: int = Field(
+        default=60, ge=0, le=3600, description="Delay before execution (0-3600 seconds)")
 
 
 class AttackReverseShellConfig(BaseModel):
     """Configuration for reverse shell attack behavior"""
     target_host: str = Field(..., description="Target host IP or domain")
-    target_port: int = Field(..., ge=1, le=65535, description="Target port (1-65535)")
-    connection_timeout: int = Field(default=30, ge=5, le=300, description="Connection timeout in seconds")
-    retry_attempts: int = Field(default=3, ge=1, le=10, description="Number of retry attempts")
+    target_port: int = Field(..., ge=1, le=65535,
+                             description="Target port (1-65535)")
+    connection_timeout: int = Field(
+        default=30, ge=5, le=300, description="Connection timeout in seconds")
+    retry_attempts: int = Field(
+        default=3, ge=1, le=10, description="Number of retry attempts")
 
 
 class ProcrastinationConfig(BaseModel):
     """Configuration for procrastination behavior - all fields optional with defaults"""
-    websites: List[str] = Field(default=["youtube.com", "reddit.com", "twitter.com"], description="Websites to visit")
-    visit_duration_minutes: int = Field(default=15, ge=1, le=120, description="Duration per website visit")
-    randomize_order: bool = Field(default=True, description="Randomize website visit order")
-    break_frequency_minutes: int = Field(default=60, ge=5, le=480, description="Break frequency in minutes")
+    websites: List[str] = Field(default=[
+                                "youtube.com", "reddit.com", "twitter.com"], description="Websites to visit")
+    visit_duration_minutes: int = Field(
+        default=15, ge=1, le=120, description="Duration per website visit")
+    randomize_order: bool = Field(
+        default=True, description="Randomize website visit order")
+    break_frequency_minutes: int = Field(
+        default=60, ge=5, le=480, description="Break frequency in minutes")
 
 
 class WorkEmailsConfig(BaseModel):
     """Configuration for work emails behavior - requires email accounts"""
-    email_accounts: List[str] = Field(..., description="List of email accounts to monitor")
-    check_frequency_minutes: int = Field(default=5, ge=1, le=60, description="Email check frequency")
+    email_accounts: List[str] = Field(...,
+                                      description="List of email accounts to monitor")
+    check_frequency_minutes: int = Field(
+        default=5, ge=1, le=60, description="Email check frequency")
     auto_reply: bool = Field(default=False, description="Enable auto-reply")
-    priority_keywords: List[str] = Field(default=["urgent", "asap", "important"], description="Priority keywords")
+    priority_keywords: List[str] = Field(
+        default=["urgent", "asap", "important"], description="Priority keywords")
 
 
 class WorkOrganizationWebConfig(BaseModel):
     """Configuration for work organization web behavior - all fields optional with defaults"""
-    websites: List[str] = Field(default=[], description="Work-related websites to organize")
-    bookmark_categories: List[str] = Field(default=["productivity", "tools", "documentation"], description="Bookmark categories")
-    cleanup_frequency_hours: int = Field(default=24, ge=1, le=168, description="Cleanup frequency in hours")
-    backup_enabled: bool = Field(default=True, description="Enable backup of bookmarks")
+    websites: List[str] = Field(
+        default=[], description="Work-related websites to organize")
+    bookmark_categories: List[str] = Field(
+        default=["productivity", "tools", "documentation"], description="Bookmark categories")
+    cleanup_frequency_hours: int = Field(
+        default=24, ge=1, le=168, description="Cleanup frequency in hours")
+    backup_enabled: bool = Field(
+        default=True, description="Enable backup of bookmarks")
 
 
 # Response models
@@ -94,7 +113,7 @@ class BehaviorRunResponse(BehaviorResponse):
 # Define which behaviors require mandatory configuration
 BEHAVIORS_REQUIRING_CONFIG = {
     AvailableBehaviors.ATTACK_PHISHING,
-    AvailableBehaviors.ATTACK_RANSOMWARE, 
+    AvailableBehaviors.ATTACK_RANSOMWARE,
     AvailableBehaviors.ATTACK_REVERSE_SHELL,
     AvailableBehaviors.WORK_EMAILS,  # Work emails requires email accounts
 }
@@ -160,18 +179,18 @@ async def update_behaviour_config(
 ) -> BehaviorResponse:
     """
     Update behaviour configuration for a specific client with validation.
-    
+
     Args:
         client_username: The username/email of the target client
         behaviour_id: The behavior to configure
         behaviour_config: Behavior-specific configuration dictionary
-    
+
     Returns:
         BehaviorResponse with details about the update operation
     """
     # Validate the configuration
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
-    
+
     sockets = [
         socket
         for socket, username in client_sockets.connected_sockets.items()
@@ -191,10 +210,10 @@ async def update_behaviour_config(
         config_summary = f" with {len(validated_config)} parameters"
     else:
         config_summary = " (config cleared)"
-    
+
     for socket in sockets:
         await socket.send_json({
-            "action": "update_behaviour_config", 
+            "action": "update_behaviour_config",
             "behaviour_id": behaviour_id.value,
             "config": validated_config
         })
@@ -209,6 +228,7 @@ async def update_behaviour_config(
         validated_config=validated_config
     )
 
+
 @router.post(
     "/run",
     response_model=BehaviorRunResponse,
@@ -222,20 +242,20 @@ async def run_behaviour(
 ) -> BehaviorRunResponse:
     """
     Execute a behaviour on a specific client with optional validated configuration.
-    
+
     Args:
         client_username: The username/email of the target client
         behaviour_id: The behavior to execute
         behaviour_config: Optional behavior-specific configuration. Not needed for
                         'procrastination' and 'work_organization_web' behaviors.
                         Required for attack behaviors and 'work_emails'.
-    
+
     Returns:
         BehaviorRunResponse with details about the execution request
     """
     # Validate the configuration (returns None for behaviors that don't need config)
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
-    
+
     sockets = [
         socket
         for socket, username in client_sockets.connected_sockets.items()
@@ -261,7 +281,7 @@ async def run_behaviour(
     # Send run command to all connected sockets for this client
     for socket in sockets:
         await socket.send_json({
-            "action": "run_behaviour", 
+            "action": "run_behaviour",
             "behaviour_id": behaviour_id.value,
             "config": validated_config  # Will be None for config-less behaviors
         })
@@ -273,7 +293,7 @@ async def run_behaviour(
         config_note = " (with configuration)"
     else:
         config_note = ""
-    
+
     return BehaviorRunResponse(
         message=f"Successfully initiated '{behaviour_id.value}' behaviour on client '{client_username}'{config_note}",
         status="success",

@@ -62,7 +62,8 @@ config_file = "config.yml"
 user_credentials_file = "user_credentials.yml"
 config_generation_file = "config_generator.yml"
 
-exchange_credentials, domain_credentials = parse_user_credentials(user_credentials_file)
+exchange_credentials, domain_credentials = parse_user_credentials(
+    user_credentials_file)
 available_client_users = {
     user["username"]: user for user in (exchange_credentials + domain_credentials)
 }
@@ -73,8 +74,7 @@ config_generator = None
 
 with open(config_generation_file, "r") as stream:
     config_generator = ConfigGenerator(
-        available_client_users, yaml.safe_load(stream).get("config_generation", {})
-    )
+        yaml.safe_load(stream).get("config_generation", {}))
 
 router = APIRouter()
 
@@ -110,8 +110,10 @@ client_sockets = SocketManager(
     router, "/client_socket", True, send_client_config, update_client_config
 )
 
+
 class ClientsInfoResponse(BaseModel):
     clients_info: list[ClientInfo]
+
 
 @router.get(
     "/",
@@ -123,10 +125,12 @@ async def get_client_info(
 ) -> ClientInfo:
     return {"clients_info": [client for client in clients_info.values()]}
 
+
 class ConnectResponse(BaseModel):
     access_token: str
     token_type: str
     client_config: ClientConfig
+
 
 @router.post(
     "/connect",
