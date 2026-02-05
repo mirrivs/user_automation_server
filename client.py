@@ -4,26 +4,21 @@ import yaml
 import logging
 
 from pydantic import BaseModel
-from typing import Optional, Annotated, Awaitable, Callable
-
-from auth import current_user
+from typing import Annotated
+# from auth import current_user
 from config_generator import ConfigGenerator
 from fastapi import (
     HTTPException,
     Depends,
     APIRouter,
-    WebSocket,
-    WebSocketDisconnect,
     Form,
 )
 from fastapi.security import (
-    OAuth2PasswordBearer,
     OAuth2PasswordRequestForm,
 )
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from jose import jwt
 from models.client_config import ClientConfig
-from sockets import SocketManager, CustomJSONEncoder
+from sockets import SocketManager
 from hostname import is_valid_hostname
 from parse_credentials import parse_user_credentials
 
@@ -118,7 +113,8 @@ class ClientsInfoResponse(BaseModel):
 @router.get(
     "/",
     response_model=ClientsInfoResponse,
-    description='Get list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/client_status_socket");`',
+    description="Get list of active clients, future status updates will be streamed via a websocket created like this:"
+    "<br>`var socket = new WebSocket('ws://localhost:8000/client_status_socket');`",
 )
 async def get_client_info(
     # username: str = Depends(current_user),
@@ -135,7 +131,10 @@ class ConnectResponse(BaseModel):
 @router.post(
     "/connect",
     response_model=ConnectResponse,
-    description='Add client to the list of active clients, future status updates will be streamed via a websocket created like this: <br>`var socket = new WebSocket("ws://localhost:8000/client_socket");`<br><br>**Required fields:** username, password, hostname',
+    description="Add client to the list of active clients, future status updates will be "
+    "streamed via a websocket created like this:<br>"
+    '`var socket = new WebSocket("ws://localhost:8000/client_socket");`'
+    "<br><br>**Required fields:** username, password, hostname",
 )
 async def connect_client(
     form_data: Annotated[OAuth2PasswordRequestFormWithHostname, Depends()],
@@ -168,13 +167,13 @@ async def connect_client(
         f"User {form_data.username} logged in from hostname {form_data.hostname}"
     )
 
-    current_user = available_client_users[form_data.username]
+    user = available_client_users[form_data.username]
 
     if form_data.hostname not in clients_info:
         clients_info[form_data.hostname] = {
             "username": form_data.username,
             "current_behaviour": None,
-            "client_config": config_generator.generate_config(current_user["username"]),
+            "client_config": config_generator.generate_config(user["username"]),
             "hostname": form_data.hostname,
         }
     else:
@@ -182,7 +181,7 @@ async def connect_client(
 
     token = jwt.encode(
         {
-            "sub": current_user["username"],
+            "sub": user["username"],
             "hostname": form_data.hostname,
             "exp": int(time.time()) + JWT_EXPIRATION,
         },

@@ -1,11 +1,9 @@
 from enum import Enum
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from client import client_sockets
-from auth import current_user
 from fastapi import (
-    Depends,
     APIRouter,
     HTTPException,
 )
@@ -169,7 +167,8 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
 @router.post(
     "/update_config",
     response_model=BehaviorResponse,
-    description="Update configuration parameters for a specific behaviour on a connected client. Configuration is validated based on the behavior type.",
+    description="""Update configuration parameters
+    for a specific behaviour on a connected client. Configuration is validated based on the behavior type.""",
     # dependencies=[Depends(current_user)],
 )
 async def update_behaviour_config(
@@ -219,7 +218,8 @@ async def update_behaviour_config(
         })
 
     return BehaviorResponse(
-        message=f"Successfully updated '{behaviour_id.value}' behaviour configuration for client '{client_username}'{config_summary}",
+        message=f"""Successfully updated '{behaviour_id.value}'
+            behaviour configuration for client '{client_username}'{config_summary}""",
         status="success",
         client_username=client_username,
         behaviour_id=behaviour_id.value,
@@ -232,7 +232,9 @@ async def update_behaviour_config(
 @router.post(
     "/run",
     response_model=BehaviorRunResponse,
-    description="Execute a specific behaviour on a connected client. Behaviors 'procrastination' and 'work_organization_web' can run without any configuration. Attack behaviors and 'work_emails' require configuration.",
+    description="""Execute a specific behaviour on a connected client.
+    Behaviors 'procrastination' and 'work_organization_web' can run without any configuration.
+    Attack behaviors and 'work_emails' require configuration.""",
     # dependencies=[Depends(current_user)],
 )
 async def run_behaviour(
