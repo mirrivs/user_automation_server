@@ -1,14 +1,13 @@
-import logging
 import configparser
+import logging
 
 from fastapi import FastAPI
-
 from fastapi.middleware.cors import CORSMiddleware
-from i18n import I18nMiddleware
 
 from auth import router as auth_router
 from client import router as client_router
 from client_behaviour import router as behaviour_router
+from i18n import I18nMiddleware
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -35,9 +34,7 @@ app.include_router(auth_router)
 app.include_router(client_router, prefix="/client", tags=["Client"])
 app.include_router(behaviour_router, prefix="/client_behaviour", tags=["Client Behaviour"])
 
-logging.info(
-    f"Started {config['DEFAULT']['title']} server {config['DEFAULT']['version']}"
-)
+logging.info(f"Started {config['DEFAULT']['title']} server {config['DEFAULT']['version']}")
 
 
 @app.middleware("http")

@@ -1,13 +1,12 @@
-import copy
-import json
 import asyncio
+import json
 import logging
-
-from utils import WSMessage
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, HTTPException, WebSocketDisconnect
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from auth import current_user
+from utils import WSMessage
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -24,9 +23,7 @@ class SocketManager:
         connect_func=None,
         receive_func=None,
     ):
-        self.connected_sockets: dict[WebSocket, str] = (
-            {}
-        )  # store connected websockets for event updates
+        self.connected_sockets: dict[WebSocket, str] = {}  # store connected websockets for event updates
         self.router = router
         self.is_json = is_json
 
@@ -66,7 +63,7 @@ class SocketManager:
                         # Just keep the connection alive without custom processing
                         received_message = await websocket.receive_json()
                         logging.info(f"Socket {endpoint} for user {username} received message {received_message}")
-            
+
             except (WebSocketDisconnect, asyncio.CancelledError):
                 logging.info(f"Socket {endpoint} for user {username} disconnected normally")
             except RuntimeError as ex:

@@ -1,12 +1,10 @@
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from client import client_sockets
-from fastapi import (
-    APIRouter,
-    HTTPException,
-)
 
 router = APIRouter()
 
@@ -24,76 +22,67 @@ class AvailableBehaviors(str, Enum):
 # Configuration models for each behavior
 class AttackPhishingConfig(BaseModel):
     """Configuration for phishing attack behavior"""
-    malicious_email_subject: str = Field(...,
-                                         description="Malicious email subject")
+
+    malicious_email_subject: str = Field(..., description="Malicious email subject")
 
 
 class AttackPhishingAttachmentConfig(BaseModel):
     """Configuration for phishing attachment attack behavior"""
-    malicious_email_subject: str = Field(...,
-                                         description="Malicious email subject")
+
+    malicious_email_subject: str = Field(..., description="Malicious email subject")
 
 
 class AttackRansomwareConfig(BaseModel):
     """Configuration for ransomware attack behavior"""
-    file_extensions: List[str] = Field(
-        default=[".txt", ".doc", ".pdf"], description="File extensions to target")
-    encryption_key: str = Field(..., min_length=16,
-                                description="Encryption key (minimum 16 characters)")
+
+    file_extensions: List[str] = Field(default=[".txt", ".doc", ".pdf"], description="File extensions to target")
+    encryption_key: str = Field(..., min_length=16, description="Encryption key (minimum 16 characters)")
     ransom_message: str = Field(..., description="Ransom note message")
-    delay_seconds: int = Field(
-        default=60, ge=0, le=3600, description="Delay before execution (0-3600 seconds)")
+    delay_seconds: int = Field(default=60, ge=0, le=3600, description="Delay before execution (0-3600 seconds)")
 
 
 class AttackReverseShellConfig(BaseModel):
     """Configuration for reverse shell attack behavior"""
+
     target_host: str = Field(..., description="Target host IP or domain")
-    target_port: int = Field(..., ge=1, le=65535,
-                             description="Target port (1-65535)")
-    connection_timeout: int = Field(
-        default=30, ge=5, le=300, description="Connection timeout in seconds")
-    retry_attempts: int = Field(
-        default=3, ge=1, le=10, description="Number of retry attempts")
+    target_port: int = Field(..., ge=1, le=65535, description="Target port (1-65535)")
+    connection_timeout: int = Field(default=30, ge=5, le=300, description="Connection timeout in seconds")
+    retry_attempts: int = Field(default=3, ge=1, le=10, description="Number of retry attempts")
 
 
 class ProcrastinationConfig(BaseModel):
     """Configuration for procrastination behavior - all fields optional with defaults"""
-    websites: List[str] = Field(default=[
-                                "youtube.com", "reddit.com", "twitter.com"], description="Websites to visit")
-    visit_duration_minutes: int = Field(
-        default=15, ge=1, le=120, description="Duration per website visit")
-    randomize_order: bool = Field(
-        default=True, description="Randomize website visit order")
-    break_frequency_minutes: int = Field(
-        default=60, ge=5, le=480, description="Break frequency in minutes")
+
+    websites: List[str] = Field(default=["youtube.com", "reddit.com", "twitter.com"], description="Websites to visit")
+    visit_duration_minutes: int = Field(default=15, ge=1, le=120, description="Duration per website visit")
+    randomize_order: bool = Field(default=True, description="Randomize website visit order")
+    break_frequency_minutes: int = Field(default=60, ge=5, le=480, description="Break frequency in minutes")
 
 
 class WorkEmailsConfig(BaseModel):
     """Configuration for work emails behavior - requires email accounts"""
-    email_accounts: List[str] = Field(...,
-                                      description="List of email accounts to monitor")
-    check_frequency_minutes: int = Field(
-        default=5, ge=1, le=60, description="Email check frequency")
+
+    email_accounts: List[str] = Field(..., description="List of email accounts to monitor")
+    check_frequency_minutes: int = Field(default=5, ge=1, le=60, description="Email check frequency")
     auto_reply: bool = Field(default=False, description="Enable auto-reply")
-    priority_keywords: List[str] = Field(
-        default=["urgent", "asap", "important"], description="Priority keywords")
+    priority_keywords: List[str] = Field(default=["urgent", "asap", "important"], description="Priority keywords")
 
 
 class WorkOrganizationWebConfig(BaseModel):
     """Configuration for work organization web behavior - all fields optional with defaults"""
-    websites: List[str] = Field(
-        default=[], description="Work-related websites to organize")
+
+    websites: List[str] = Field(default=[], description="Work-related websites to organize")
     bookmark_categories: List[str] = Field(
-        default=["productivity", "tools", "documentation"], description="Bookmark categories")
-    cleanup_frequency_hours: int = Field(
-        default=24, ge=1, le=168, description="Cleanup frequency in hours")
-    backup_enabled: bool = Field(
-        default=True, description="Enable backup of bookmarks")
+        default=["productivity", "tools", "documentation"], description="Bookmark categories"
+    )
+    cleanup_frequency_hours: int = Field(default=24, ge=1, le=168, description="Cleanup frequency in hours")
+    backup_enabled: bool = Field(default=True, description="Enable backup of bookmarks")
 
 
 # Response models
 class BehaviorResponse(BaseModel):
     """Standard response for behavior operations"""
+
     message: str
     status: str
     client_username: str
@@ -105,6 +94,7 @@ class BehaviorResponse(BaseModel):
 
 class BehaviorRunResponse(BehaviorResponse):
     """Response for behavior run operations"""
+
     config_updated: bool = False
 
 
@@ -143,10 +133,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
             # These behaviors run without any configuration
             return None
         elif behaviour_id in BEHAVIORS_REQUIRING_CONFIG:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Configuration is required for {behaviour_id.value}"
-            )
+            raise HTTPException(status_code=422, detail=f"Configuration is required for {behaviour_id.value}")
         return None
 
     # If config is provided, validate it
@@ -158,10 +145,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
         validated_config = config_model(**behaviour_config)
         return validated_config.dict()
     except Exception as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid configuration for {behaviour_id.value}: {str(e)}"
-        )
+        raise HTTPException(status_code=422, detail=f"Invalid configuration for {behaviour_id.value}: {str(e)}")
 
 
 @router.post(
@@ -172,9 +156,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
     # dependencies=[Depends(current_user)],
 )
 async def update_behaviour_config(
-    client_username: str,
-    behaviour_id: AvailableBehaviors,
-    behaviour_config: Optional[dict] = None
+    client_username: str, behaviour_id: AvailableBehaviors, behaviour_config: Optional[dict] = None
 ) -> BehaviorResponse:
     """
     Update behaviour configuration for a specific client with validation.
@@ -190,11 +172,7 @@ async def update_behaviour_config(
     # Validate the configuration
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
 
-    sockets = [
-        socket
-        for socket, username in client_sockets.connected_sockets.items()
-        if username == client_username
-    ]
+    sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
 
     if not sockets:
         return BehaviorResponse(
@@ -202,7 +180,7 @@ async def update_behaviour_config(
             status="error",
             client_username=client_username,
             behaviour_id=behaviour_id.value,
-            clients_notified=0
+            clients_notified=0,
         )
 
     if validated_config:
@@ -211,11 +189,9 @@ async def update_behaviour_config(
         config_summary = " (config cleared)"
 
     for socket in sockets:
-        await socket.send_json({
-            "action": "update_behaviour_config",
-            "behaviour_id": behaviour_id.value,
-            "config": validated_config
-        })
+        await socket.send_json(
+            {"action": "update_behaviour_config", "behaviour_id": behaviour_id.value, "config": validated_config}
+        )
 
     return BehaviorResponse(
         message=f"""Successfully updated '{behaviour_id.value}'
@@ -225,7 +201,7 @@ async def update_behaviour_config(
         behaviour_id=behaviour_id.value,
         config_keys=list(validated_config.keys()) if validated_config else [],
         clients_notified=len(sockets),
-        validated_config=validated_config
+        validated_config=validated_config,
     )
 
 
@@ -238,9 +214,7 @@ async def update_behaviour_config(
     # dependencies=[Depends(current_user)],
 )
 async def run_behaviour(
-    client_username: str,
-    behaviour_id: AvailableBehaviors,
-    behaviour_config: Optional[dict] = None
+    client_username: str, behaviour_id: AvailableBehaviors, behaviour_config: Optional[dict] = None
 ) -> BehaviorRunResponse:
     """
     Execute a behaviour on a specific client with optional validated configuration.
@@ -258,11 +232,7 @@ async def run_behaviour(
     # Validate the configuration (returns None for behaviors that don't need config)
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
 
-    sockets = [
-        socket
-        for socket, username in client_sockets.connected_sockets.items()
-        if username == client_username
-    ]
+    sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
 
     if not sockets:
         return BehaviorRunResponse(
@@ -271,7 +241,7 @@ async def run_behaviour(
             client_username=client_username,
             behaviour_id=behaviour_id.value,
             clients_notified=0,
-            config_updated=False
+            config_updated=False,
         )
 
     # Update configuration only if config was provided and the behavior supports configuration
@@ -282,11 +252,13 @@ async def run_behaviour(
 
     # Send run command to all connected sockets for this client
     for socket in sockets:
-        await socket.send_json({
-            "action": "run_behaviour",
-            "behaviour_id": behaviour_id.value,
-            "config": validated_config  # Will be None for config-less behaviors
-        })
+        await socket.send_json(
+            {
+                "action": "run_behaviour",
+                "behaviour_id": behaviour_id.value,
+                "config": validated_config,  # Will be None for config-less behaviors
+            }
+        )
 
     # Determine message based on behavior type
     if behaviour_id in BEHAVIORS_WITHOUT_CONFIG:
@@ -304,5 +276,5 @@ async def run_behaviour(
         config_updated=config_updated,
         config_keys=list(validated_config.keys()) if validated_config else [],
         clients_notified=len(sockets),
-        validated_config=validated_config if validated_config else None
+        validated_config=validated_config if validated_config else None,
     )

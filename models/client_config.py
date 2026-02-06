@@ -1,5 +1,6 @@
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional, List
 
 
 class User(BaseModel):
@@ -51,4 +52,5 @@ class Automation(BaseModel):
 
 
 class ClientConfig(BaseModel):
+    automation: Optional[Automation] = Field(default=None)
     automation: Optional[Automation] = Field(default=None)

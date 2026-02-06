@@ -1,14 +1,10 @@
+import logging
 import os
 import time
-import logging
-import configparser
+from typing import Annotated, Awaitable, Optional
 
-from typing import Annotated, Awaitable, Callable, Optional
-from fastapi import HTTPException, Depends, APIRouter, WebSocket
-from fastapi.security import (
-    OAuth2PasswordBearer,
-    OAuth2PasswordRequestForm,
-)  # , JWTAuthentication
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm  # , JWTAuthentication
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -138,15 +134,10 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     """
     # Verify username and password against the users from elasticsearch
     if not (
-        form_data.username in users
-        and pwd_context.verify(
-            form_data.password, users[form_data.username]["password"]
-        )
+        form_data.username in users and pwd_context.verify(form_data.password, users[form_data.username]["password"])
     ):
         logging.warning(f"Invalid login attempt from user {form_data.username}")
-        raise HTTPException(
-            status_code=401, detail="errors.invalid_username_or_password"
-        )
+        raise HTTPException(status_code=401, detail="errors.invalid_username_or_password")
     logging.info(f"User {form_data.username} logged in")
 
     current_user = users[form_data.username]

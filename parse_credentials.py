@@ -25,8 +25,6 @@ def parse_user_credentials(credentials_filepath: str) -> tuple[list[dict], list[
         ]
 
         # Remove duplicate items from domain credentials
-        domain_credentials = [
-            creds for creds in domain_credentials if creds not in exchange_credentials
-        ]
+        domain_credentials = [creds for creds in domain_credentials if creds not in exchange_credentials]
 
         return exchange_credentials, domain_credentials

@@ -1,11 +1,10 @@
 import json
-from pydantic import BaseModel
-import yaml
-from typing import Callable
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from typing import Callable, Optional
 
-from typing import Optional
+import yaml
+from fastapi import Request, Response
+from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class Translation(BaseModel):
@@ -66,5 +65,9 @@ class I18nMiddleware(BaseHTTPMiddleware):
         language = parse_language(request.headers.get("accept-language", "en"))
         response_body = translate_response(response_body, language)
         response.headers["Content-Length"] = str(len(response_body))
-        return Response(content=response_body, status_code=response.status_code,
-                        headers=dict(response.headers), media_type=response.media_type)
+        return Response(
+            content=response_body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )

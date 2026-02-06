@@ -1,26 +1,20 @@
+import logging
 import os
 import time
-import yaml
-import logging
-
-from pydantic import BaseModel
 from typing import Annotated
+
+import yaml
+from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
+from jose import jwt
+from pydantic import BaseModel
+
 # from auth import current_user
 from config_generator import ConfigGenerator
-from fastapi import (
-    HTTPException,
-    Depends,
-    APIRouter,
-    Form,
-)
-from fastapi.security import (
-    OAuth2PasswordRequestForm,
-)
-from jose import jwt
-from models.client_config import ClientConfig
-from sockets import SocketManager
 from hostname import is_valid_hostname
+from models.client_config import ClientConfig
 from parse_credentials import parse_user_credentials
+from sockets import SocketManager
 
 # Load configuration from environment variables or a file
 JWT_SECRET = os.getenv("JWT_SECRET", "ExgEFKuRnzSZhjAq")
@@ -57,19 +51,15 @@ config_file = "config.yml"
 user_credentials_file = "user_credentials.yml"
 config_generation_file = "config_generator.yml"
 
-exchange_credentials, domain_credentials = parse_user_credentials(
-    user_credentials_file)
-available_client_users = {
-    user["username"]: user for user in (exchange_credentials + domain_credentials)
-}
+exchange_credentials, domain_credentials = parse_user_credentials(user_credentials_file)
+available_client_users = {user["username"]: user for user in (exchange_credentials + domain_credentials)}
 
 clients_info: dict[str, ClientInfo] = {}
 
 config_generator = None
 
 with open(config_generation_file, "r") as stream:
-    config_generator = ConfigGenerator(
-        yaml.safe_load(stream).get("config_generation", {}))
+    config_generator = ConfigGenerator(yaml.safe_load(stream).get("config_generation", {}))
 
 router = APIRouter()
 
@@ -98,12 +88,8 @@ async def update_client_config(data, websocket, username):
     pass
 
 
-client_status_sockets = SocketManager(
-    router, "/client_status_socket", True, send_client_status, update_client_status
-)
-client_sockets = SocketManager(
-    router, "/client_socket", True, send_client_config, update_client_config
-)
+client_status_sockets = SocketManager(router, "/client_status_socket", True, send_client_status, update_client_status)
+client_sockets = SocketManager(router, "/client_socket", True, send_client_config, update_client_config)
 
 
 class ClientsInfoResponse(BaseModel):
@@ -147,25 +133,17 @@ async def connect_client(
         raise HTTPException(status_code=400, detail="errors.hostname_required")
 
     if not is_valid_hostname(form_data.hostname):
-        logging.warning(
-            f"Invalid hostname '{form_data.hostname}' for user {form_data.username}"
-        )
+        logging.warning(f"Invalid hostname '{form_data.hostname}' for user {form_data.username}")
         raise HTTPException(status_code=400, detail="errors.invalid_hostname")
 
     if not (
         form_data.username in available_client_users
         and form_data.password == available_client_users[form_data.username]["password"]
     ):
-        logging.warning(
-            f"Invalid login attempt from user {form_data.username} with hostname {form_data.hostname}"
-        )
-        raise HTTPException(
-            status_code=401, detail="errors.invalid_username_or_password"
-        )
+        logging.warning(f"Invalid login attempt from user {form_data.username} with hostname {form_data.hostname}")
+        raise HTTPException(status_code=401, detail="errors.invalid_username_or_password")
 
-    logging.info(
-        f"User {form_data.username} logged in from hostname {form_data.hostname}"
-    )
+    logging.info(f"User {form_data.username} logged in from hostname {form_data.hostname}")
 
     user = available_client_users[form_data.username]
 
