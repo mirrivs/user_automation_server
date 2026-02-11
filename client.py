@@ -47,9 +47,10 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
         self.hostname = hostname
 
 
-config_file = "config.yml"
-user_credentials_file = "user_credentials.yml"
-config_generation_file = "config_generator.yml"
+cwd = os.path.abspath(os.path.dirname(__file__))
+config_file = os.path.join(cwd, "config.yml")
+user_credentials_file = os.path.join(cwd, "user_credentials.yml")
+config_generation_file = os.path.join(cwd, "config_generator.yml")
 
 exchange_credentials, domain_credentials = parse_user_credentials(user_credentials_file)
 available_client_users = {user["username"]: user for user in (exchange_credentials + domain_credentials)}
