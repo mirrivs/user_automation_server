@@ -1,3 +1,4 @@
+import configparser
 import logging
 import os
 import time
@@ -20,6 +21,9 @@ from sockets import SocketManager
 JWT_SECRET = os.getenv("JWT_SECRET", "ExgEFKuRnzSZhjAq")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION = int(os.getenv("JWT_EXPIRATION", 36000))  # seconds
+
+config = configparser.ConfigParser()
+config.read("config.ini")
 
 
 class ClientInfo(BaseModel):
@@ -52,8 +56,15 @@ config_file = os.path.join(cwd, "config.yml")
 user_credentials_file = os.path.join(cwd, "user_credentials.yml")
 config_generation_file = os.path.join(cwd, "config_generator.yml")
 
-exchange_credentials, domain_credentials = parse_user_credentials(user_credentials_file)
-available_client_users = {user["username"]: user for user in (exchange_credentials + domain_credentials)}
+user_credentials = parse_user_credentials(user_credentials_file)
+
+
+if config.getboolean("DEFAULT", "use_o365"):
+    credentials = user_credentials.get("o365_credentials", [])
+else:
+    credentials = user_credentials.get("domain_credentials", [])
+
+available_client_users = {user["username"]: user for user in credentials}
 
 clients_info: dict[str, ClientInfo] = {}
 
