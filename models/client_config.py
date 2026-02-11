@@ -12,8 +12,7 @@ class IdleCycle(BaseModel):
     procrastination_chance: Optional[float] = Field(default=None)
 
 
-class General(BaseModel):
-    is_conversation_starter: Optional[bool] = Field(default=None)
+# class General(BaseModel)
 
 
 class AttackRansomware(BaseModel):
@@ -37,6 +36,7 @@ class Procrastination(BaseModel):
 
 class WorkEmails(BaseModel):
     email_receivers: Optional[List[str]] = Field(default=None)
+    is_conversation_starter: Optional[bool] = Field(default=None)
 
 
 class Behaviours(BaseModel):
@@ -46,7 +46,7 @@ class Behaviours(BaseModel):
 
 
 class Automation(BaseModel):
-    general: Optional[General] = Field(default=None)
+    # general: Optional[General] = Field(default=None)
     idle_cycle: Optional[IdleCycle] = Field(default=None)
     behaviours: Optional[Behaviours] = Field(default=None)
 

@@ -1,10 +1,14 @@
 import json
+import os
 from typing import Callable, Optional
 
 import yaml
 from fastapi import Request, Response
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
+
+cwd = os.path.abspath(os.path.dirname(__file__))
+translations_file = os.path.join(cwd, "translations.yml")
 
 
 class Translation(BaseModel):
@@ -23,7 +27,7 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-with open("translations.yml", "r", encoding="utf-8") as f:
+with open(translations_file, "r", encoding="utf-8") as f:
     translations = yaml.safe_load(f)
     translations = flatten_dict(translations)
 

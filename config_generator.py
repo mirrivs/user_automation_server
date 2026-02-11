@@ -18,9 +18,7 @@ class ConfigGenerator:
         client_config = {}
 
         # Add general configuration
-        general_config = {
-            "is_conversation_starter": False,
-        }
+        general_config = {}
 
         # Add idle_cycle configuration from template
         idle_cycle_config = {}
@@ -29,14 +27,16 @@ class ConfigGenerator:
 
         # Initialize behaviours structure
         behaviours_config = {}
-        work_emails_config = {}
+        work_emails_config = {
+            "is_conversation_starter": False,
+        }
 
         # Email conversation logic
         if self.is_conversation_starter_counter != self.conversation_starter_frequency:
             self.is_conversation_starter_counter += 1
             self.email_receivers_list.append(email)
         else:
-            general_config["is_conversation_starter"] = True
+            work_emails_config["is_conversation_starter"] = True
             work_emails_config["email_receivers"] = self.email_receivers_list
 
             self.is_conversation_starter_counter = 0

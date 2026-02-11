@@ -138,7 +138,7 @@ async def connect_client(
         raise HTTPException(status_code=400, detail="errors.invalid_hostname")
 
     if not (
-        form_data.username in available_client_users
+        form_data.username in available_client_users.keys()
         and form_data.password == available_client_users[form_data.username]["password"]
     ):
         logging.warning(f"Invalid login attempt from user {form_data.username} with hostname {form_data.hostname}")
