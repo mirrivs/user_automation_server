@@ -59,10 +59,10 @@ config_generation_file = os.path.join(cwd, "config_generator.yml")
 user_credentials = parse_user_credentials(user_credentials_file)
 
 
-if config.getboolean("DEFAULT", "use_o365"):
-    credentials = user_credentials.get("o365_credentials", [])
+if config.getboolean("DEFAULT", "use_hybrid_mail_domain"):
+    credentials = user_credentials.get("external_user_credentials", [])
 else:
-    credentials = user_credentials.get("domain_credentials", [])
+    credentials = user_credentials.get("internal_user_credentials", [])
 
 available_client_users = {user["username"]: user for user in credentials}
 
