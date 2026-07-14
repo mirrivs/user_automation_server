@@ -1,12 +1,18 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from client import client_sockets
+from client import broadcast_client_status, client_sockets, clients_info, get_reported_behaviours
+from service_auth import require_service_token
 
 router = APIRouter()
+
+
+class IdleCycleAction(str, Enum):
+    START = "start"
+    STOP = "stop"
 
 
 class AvailableBehaviors(str, Enum):
@@ -103,13 +109,13 @@ BEHAVIORS_REQUIRING_CONFIG = {
     AvailableBehaviors.ATTACK_PHISHING,
     AvailableBehaviors.ATTACK_RANSOMWARE,
     AvailableBehaviors.ATTACK_REVERSE_SHELL,
-    AvailableBehaviors.WORK_EMAILS,  # Work emails requires email accounts
 }
 
 # Define which behaviors can run without any configuration
 BEHAVIORS_WITHOUT_CONFIG = {
     AvailableBehaviors.PROCRASTINATION,
     AvailableBehaviors.WORK_ORGANIZATION_WEB,
+    AvailableBehaviors.WORK_EMAILS,
 }
 
 # Mapping behaviors to their config models
@@ -118,9 +124,87 @@ BEHAVIOR_CONFIG_MAPPING = {
     AvailableBehaviors.ATTACK_RANSOMWARE: AttackRansomwareConfig,
     AvailableBehaviors.ATTACK_REVERSE_SHELL: AttackReverseShellConfig,
     AvailableBehaviors.PROCRASTINATION: ProcrastinationConfig,
-    AvailableBehaviors.WORK_EMAILS: WorkEmailsConfig,
     AvailableBehaviors.WORK_ORGANIZATION_WEB: WorkOrganizationWebConfig,
 }
+
+
+# Map JSON-schema types (from the Pydantic models) to simple UI field types.
+_JSON_TYPE_MAP = {
+    "integer": "int",
+    "number": "float",
+    "string": "string",
+    "boolean": "bool",
+    "array": "list",
+}
+
+
+def behaviour_config_fields(model) -> List[dict]:
+    """Derive a UI-friendly field descriptor list from a behaviour's config model."""
+    if model is None:
+        return []
+
+    schema = model.schema()
+    required = set(schema.get("required", []))
+    fields: List[dict] = []
+
+    for name, prop in schema.get("properties", {}).items():
+        field = {
+            "name": name,
+            "type": _JSON_TYPE_MAP.get(prop.get("type"), "string"),
+            "required": name in required,
+        }
+        if prop.get("type") == "array":
+            field["item_type"] = _JSON_TYPE_MAP.get(prop.get("items", {}).get("type"), "string")
+        for src, dst in (
+            ("default", "default"),
+            ("description", "description"),
+            ("minimum", "min"),
+            ("maximum", "max"),
+            ("minLength", "min_length"),
+            ("maxLength", "max_length"),
+        ):
+            if src in prop:
+                field[dst] = prop[src]
+        fields.append(field)
+
+    return fields
+
+
+@router.get(
+    "/behaviours",
+    description="List all available behaviours with their configuration field schema, "
+    "derived from the behaviour config models. Used by the wizard to render run forms.",
+    dependencies=[Depends(require_service_token)],
+)
+async def list_behaviours() -> List[dict]:
+    """Return every behaviour, whether it needs config, and its config field descriptors."""
+    return [
+        {
+            "id": behaviour.value,
+            "requires_config": behaviour in BEHAVIORS_REQUIRING_CONFIG,
+            "fields": behaviour_config_fields(BEHAVIOR_CONFIG_MAPPING.get(behaviour)),
+        }
+        for behaviour in AvailableBehaviors
+    ]
+
+
+# Helper function to enforce client-reported behaviour availability
+def ensure_behaviour_available(client_username: str, behaviour_id: AvailableBehaviors) -> None:
+    """Reject the request if the target client cannot run the behaviour.
+
+    Availability is owned by the client, which reports the behaviours it can run
+    when it connects. The server only enforces that set: if the client reported
+    nothing (older client / unknown) availability is not enforced, but if it did
+    report a set, a behaviour outside it is refused before any command is sent.
+    """
+    available = get_reported_behaviours(client_username)
+    if available is None:
+        return
+    if behaviour_id.value not in available:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Behaviour '{behaviour_id.value}' is not available on client '{client_username}'",
+        )
 
 
 # Helper function to validate config based on behavior
@@ -153,7 +237,7 @@ def validate_behavior_config(behaviour_id: AvailableBehaviors, behaviour_config:
     response_model=BehaviorResponse,
     description="""Update configuration parameters
     for a specific behaviour on a connected client. Configuration is validated based on the behavior type.""",
-    # dependencies=[Depends(current_user)],
+    dependencies=[Depends(require_service_token)],
 )
 async def update_behaviour_config(
     client_username: str, behaviour_id: AvailableBehaviors, behaviour_config: Optional[dict] = None
@@ -169,6 +253,9 @@ async def update_behaviour_config(
     Returns:
         BehaviorResponse with details about the update operation
     """
+    # Refuse behaviours the target client reported it cannot run
+    ensure_behaviour_available(client_username, behaviour_id)
+
     # Validate the configuration
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
 
@@ -211,7 +298,7 @@ async def update_behaviour_config(
     description="""Execute a specific behaviour on a connected client.
     Behaviors 'procrastination' and 'work_organization_web' can run without any configuration.
     Attack behaviors and 'work_emails' require configuration.""",
-    # dependencies=[Depends(current_user)],
+    dependencies=[Depends(require_service_token)],
 )
 async def run_behaviour(
     client_username: str, behaviour_id: AvailableBehaviors, behaviour_config: Optional[dict] = None
@@ -229,6 +316,9 @@ async def run_behaviour(
     Returns:
         BehaviorRunResponse with details about the execution request
     """
+    # Refuse behaviours the target client reported it cannot run
+    ensure_behaviour_available(client_username, behaviour_id)
+
     # Validate the configuration (returns None for behaviors that don't need config)
     validated_config = validate_behavior_config(behaviour_id, behaviour_config)
 
@@ -260,6 +350,12 @@ async def run_behaviour(
             }
         )
 
+    # Reflect the running behaviour on the tracked clients and notify status subscribers.
+    for client in clients_info.values():
+        if client["username"] == client_username:
+            client["current_behaviour"] = behaviour_id.value
+    await broadcast_client_status()
+
     # Determine message based on behavior type
     if behaviour_id in BEHAVIORS_WITHOUT_CONFIG:
         config_note = ""  # No mention of config for config-less behaviors
@@ -277,4 +373,60 @@ async def run_behaviour(
         config_keys=list(validated_config.keys()) if validated_config else [],
         clients_notified=len(sockets),
         validated_config=validated_config if validated_config else None,
+    )
+
+
+class IdleCycleResponse(BaseModel):
+    """Response for idle-cycle start/stop operations."""
+
+    message: str
+    status: str
+    client_username: str
+    action: str
+    idle_cycle_active: Optional[bool] = None
+    clients_notified: int
+
+
+@router.post(
+    "/idle_cycle/{action}",
+    response_model=IdleCycleResponse,
+    description="Start or stop the idle (procrastination) cycle on a connected client.",
+    dependencies=[Depends(require_service_token)],
+)
+async def set_idle_cycle(client_username: str, action: IdleCycleAction) -> IdleCycleResponse:
+    """
+    Remotely start or stop a client's idle cycle by pushing a control action over
+    its websocket. Reflects the new state on the tracked client and notifies
+    status subscribers.
+    """
+    active = action == IdleCycleAction.START
+
+    sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
+
+    if not sockets:
+        return IdleCycleResponse(
+            message=f"Client '{client_username}' is not currently connected",
+            status="error",
+            client_username=client_username,
+            action=action.value,
+            idle_cycle_active=None,
+            clients_notified=0,
+        )
+
+    for socket in sockets:
+        await socket.send_json({"action": f"{action.value}_idle_cycle"})
+
+    for client in clients_info.values():
+        if client["username"] == client_username:
+            client["idle_cycle_active"] = active
+
+    await broadcast_client_status()
+
+    return IdleCycleResponse(
+        message=f"Successfully sent idle-cycle '{action.value}' to client '{client_username}'",
+        status="success",
+        client_username=client_username,
+        action=action.value,
+        idle_cycle_active=active,
+        clients_notified=len(sockets),
     )

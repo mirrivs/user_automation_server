@@ -1,4 +1,5 @@
 import configparser
+import json
 import logging
 import os
 import time
@@ -10,11 +11,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from pydantic import BaseModel
 
-# from auth import current_user
+from auth import current_user
 from config_generator import ConfigGenerator
 from hostname import is_valid_hostname
 from models.client_config import ClientConfig
 from parse_credentials import parse_user_credentials
+from service_auth import is_valid_service_token, require_service_token
 from sockets import SocketManager
 
 # Load configuration from environment variables or a file
@@ -31,6 +33,32 @@ class ClientInfo(BaseModel):
     hostname: str
     current_behaviour: str | None
     client_config: ClientConfig
+    idle_cycle_active: bool | None = None
+    # Behaviours the client reported it can run on /connect. None means the client
+    # did not report a set, so the server does not enforce availability for it.
+    available_behaviours: list[str] | None = None
+
+
+def parse_available_behaviours(raw: str | None) -> list[str] | None:
+    """Parse the client-reported available behaviours from the connect form.
+
+    The client reports the behaviours it can run as either a JSON array
+    (e.g. '["procrastination", "work_emails"]') or a comma-separated string.
+    Returns None when the client reports nothing, meaning "unknown" (the server
+    then does not enforce availability for that client).
+    """
+    if raw is None or raw.strip() == "":
+        return None
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        parsed = [item.strip() for item in raw.split(",")]
+
+    if not isinstance(parsed, list):
+        return None
+
+    return [str(item).strip() for item in parsed if str(item).strip()]
 
 
 class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
@@ -40,6 +68,7 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
         username: Annotated[str, Form()],
         password: Annotated[str, Form()],
         hostname: Annotated[str, Form()],
+        available_behaviours: Annotated[str | None, Form()] = None,
     ):
         super().__init__(
             username=username,
@@ -49,6 +78,7 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
             client_secret=None,
         )
         self.hostname = hostname
+        self.available_behaviours = parse_available_behaviours(available_behaviours)
 
 
 cwd = os.path.abspath(os.path.dirname(__file__))
@@ -76,15 +106,24 @@ with open(config_generation_file, "r") as stream:
 router = APIRouter()
 
 
-async def send_client_status(websocket):
-    """Send client status updates to websocket"""
-    # Implement your status sending logic here
-    pass
+async def status_socket_auth(token: str) -> str:
+    """
+    Authenticate a status-socket subscriber. Accepts either the shared service API
+    key (used by the wizard backend) or a valid dashboard JWT.
+    """
+    if is_valid_service_token(token):
+        return "service"
+    return await current_user(token)
+
+
+async def send_client_status(websocket, identity=None):
+    """Send the current client list to a freshly connected status subscriber."""
+    await websocket.send_json({"clients_info": [client for client in clients_info.values()]})
 
 
 async def update_client_status(data, websocket):
     """Update client status"""
-    # Implement your status update logic here
+    # Status subscribers are read-only; inbound messages are ignored.
     pass
 
 
@@ -100,8 +139,26 @@ async def update_client_config(data, websocket, username):
     pass
 
 
-client_status_sockets = SocketManager(router, "/client_status_socket", True, send_client_status, update_client_status)
+client_status_sockets = SocketManager(
+    router,
+    "/client_status_socket",
+    True,
+    send_client_status,
+    update_client_status,
+    auth_func=status_socket_auth,
+)
 client_sockets = SocketManager(router, "/client_socket", True, send_client_config, update_client_config)
+
+
+async def broadcast_client_status():
+    """Push the current client list to every connected status subscriber."""
+    payload = {"clients_info": [client for client in clients_info.values()]}
+    for websocket in list(client_status_sockets.connected_sockets.keys()):
+        try:
+            await websocket.send_json(payload)
+        except Exception as ex:  # noqa: BLE001 - a dead subscriber must not abort the broadcast
+            logging.warning(f"Dropping status subscriber, send failed: {ex}")
+            client_status_sockets.connected_sockets.pop(websocket, None)
 
 
 class ClientsInfoResponse(BaseModel):
@@ -113,10 +170,9 @@ class ClientsInfoResponse(BaseModel):
     response_model=ClientsInfoResponse,
     description="Get list of active clients, future status updates will be streamed via a websocket created like this:"
     "<br>`var socket = new WebSocket('ws://localhost:8000/client_status_socket');`",
+    dependencies=[Depends(require_service_token)],
 )
-async def get_client_info(
-    # username: str = Depends(current_user),
-) -> ClientInfo:
+async def get_client_info() -> ClientInfo:
     return {"clients_info": [client for client in clients_info.values()]}
 
 
@@ -165,9 +221,14 @@ async def connect_client(
             "current_behaviour": None,
             "client_config": config_generator.generate_config(user["username"]),
             "hostname": form_data.hostname,
+            "idle_cycle_active": None,
+            "available_behaviours": form_data.available_behaviours,
         }
     else:
         clients_info[form_data.hostname]["hostname"] = form_data.hostname
+        clients_info[form_data.hostname]["available_behaviours"] = form_data.available_behaviours
+
+    await broadcast_client_status()
 
     token = jwt.encode(
         {
@@ -186,11 +247,30 @@ async def connect_client(
     }
 
 
+def get_reported_behaviours(username: str) -> set[str] | None:
+    """Return the set of behaviours a user's connected client(s) reported as available.
+
+    When the same user is connected from several hostnames the result is the
+    intersection of every reported set, so the server only permits a behaviour
+    that every target client can run. Returns None when no client for the user
+    reported a set (unknown -> availability is not enforced).
+    """
+    reported_sets = [
+        set(info["available_behaviours"])
+        for info in clients_info.values()
+        if info.get("username") == username and info.get("available_behaviours") is not None
+    ]
+    if not reported_sets:
+        return None
+    return set.intersection(*reported_sets)
+
+
 @router.delete("/disconnect")
 async def disconnect_client(hostname: str) -> dict:
     global clients_info
     if hostname in clients_info:
         del clients_info[hostname]
+        await broadcast_client_status()
         return {"message": f"Client {hostname} disconnected"}
     else:
         raise HTTPException(status_code=404, detail="Client not found")

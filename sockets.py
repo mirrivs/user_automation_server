@@ -22,17 +22,23 @@ class SocketManager:
         is_json: bool,
         connect_func=None,
         receive_func=None,
+        auth_func=None,
     ):
         self.connected_sockets: dict[WebSocket, str] = {}  # store connected websockets for event updates
         self.router = router
         self.is_json = is_json
+        # `auth_func` lets a socket use a different first-message credential check than
+        # the default JWT `current_user` (e.g. the shared service API key). It must be
+        # an async callable taking the token string and returning an identity, or
+        # raising HTTPException on failure.
+        self.auth_func = auth_func or current_user
 
         @router.websocket(endpoint)
         async def websocket_endpoint(websocket: WebSocket):
             await websocket.accept()
             token = await websocket.receive_text()  # receive auth token as first message
             try:
-                username = await current_user(token)
+                username = await self.auth_func(token)
             except HTTPException:
                 logging.warning(f"Socket {endpoint} attempted connect with invalid token {token}")
                 await self._update_status("Invalid token", websocket)
