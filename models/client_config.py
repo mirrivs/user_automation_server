@@ -8,7 +8,7 @@ class User(BaseModel):
     password: str
 
 
-class IdleCycle(BaseModel):
+class WorkCycle(BaseModel):
     procrastination_chance: Optional[float] = Field(default=None)
 
 
@@ -47,7 +47,7 @@ class Behaviours(BaseModel):
 
 class Automation(BaseModel):
     # general: Optional[General] = Field(default=None)
-    idle_cycle: Optional[IdleCycle] = Field(default=None)
+    work_cycle: Optional[WorkCycle] = Field(default=None)
     behaviours: Optional[Behaviours] = Field(default=None)
 
 

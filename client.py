@@ -25,7 +25,7 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION = int(os.getenv("JWT_EXPIRATION", 36000))  # seconds
 
 config = configparser.ConfigParser()
-config.read("config.ini")
+config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"))
 
 
 class ClientInfo(BaseModel):
@@ -33,7 +33,7 @@ class ClientInfo(BaseModel):
     hostname: str
     current_behaviour: str | None
     client_config: ClientConfig
-    idle_cycle_active: bool | None = None
+    work_cycle_active: bool | None = None
     # Behaviours the client reported it can run on /connect. None means the client
     # did not report a set, so the server does not enforce availability for it.
     available_behaviours: list[str] | None = None
@@ -221,7 +221,7 @@ async def connect_client(
             "current_behaviour": None,
             "client_config": config_generator.generate_config(user["username"]),
             "hostname": form_data.hostname,
-            "idle_cycle_active": None,
+            "work_cycle_active": None,
             "available_behaviours": form_data.available_behaviours,
         }
     else:

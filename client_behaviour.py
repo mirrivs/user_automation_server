@@ -10,7 +10,7 @@ from service_auth import require_service_token
 router = APIRouter()
 
 
-class IdleCycleAction(str, Enum):
+class WorkCycleAction(str, Enum):
     START = "start"
     STOP = "stop"
 
@@ -376,57 +376,57 @@ async def run_behaviour(
     )
 
 
-class IdleCycleResponse(BaseModel):
-    """Response for idle-cycle start/stop operations."""
+class WorkCycleResponse(BaseModel):
+    """Response for work-cycle start/stop operations."""
 
     message: str
     status: str
     client_username: str
     action: str
-    idle_cycle_active: Optional[bool] = None
+    work_cycle_active: Optional[bool] = None
     clients_notified: int
 
 
 @router.post(
-    "/idle_cycle/{action}",
-    response_model=IdleCycleResponse,
-    description="Start or stop the idle (procrastination) cycle on a connected client.",
+    "/work_cycle/{action}",
+    response_model=WorkCycleResponse,
+    description="Start or stop the work cycle (simulated normal user activity) on a connected client.",
     dependencies=[Depends(require_service_token)],
 )
-async def set_idle_cycle(client_username: str, action: IdleCycleAction) -> IdleCycleResponse:
+async def set_work_cycle(client_username: str, action: WorkCycleAction) -> WorkCycleResponse:
     """
-    Remotely start or stop a client's idle cycle by pushing a control action over
+    Remotely start or stop a client's work cycle by pushing a control action over
     its websocket. Reflects the new state on the tracked client and notifies
     status subscribers.
     """
-    active = action == IdleCycleAction.START
+    active = action == WorkCycleAction.START
 
     sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
 
     if not sockets:
-        return IdleCycleResponse(
+        return WorkCycleResponse(
             message=f"Client '{client_username}' is not currently connected",
             status="error",
             client_username=client_username,
             action=action.value,
-            idle_cycle_active=None,
+            work_cycle_active=None,
             clients_notified=0,
         )
 
     for socket in sockets:
-        await socket.send_json({"action": f"{action.value}_idle_cycle"})
+        await socket.send_json({"action": f"{action.value}_work_cycle"})
 
     for client in clients_info.values():
         if client["username"] == client_username:
-            client["idle_cycle_active"] = active
+            client["work_cycle_active"] = active
 
     await broadcast_client_status()
 
-    return IdleCycleResponse(
-        message=f"Successfully sent idle-cycle '{action.value}' to client '{client_username}'",
+    return WorkCycleResponse(
+        message=f"Successfully sent work-cycle '{action.value}' to client '{client_username}'",
         status="success",
         client_username=client_username,
         action=action.value,
-        idle_cycle_active=active,
+        work_cycle_active=active,
         clients_notified=len(sockets),
     )

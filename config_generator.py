@@ -8,7 +8,7 @@ class ConfigGenerator:
         self.conversation_starter_frequency = self.generator_config.get("conversation_starter_frequency", 2) - 1
         # Updated to use new structure: behaviour.behaviours instead of user_behaviour
         self.automation_config = self.generator_config.get("automation", {})
-        self.idle_cycle_template = self.automation_config.get("idle_cycle", {})
+        self.work_cycle_template = self.automation_config.get("work_cycle", {})
         self.behaviours_templates = self.automation_config.get("behaviours", {})
 
         self.is_conversation_starter_counter = 0
@@ -20,10 +20,10 @@ class ConfigGenerator:
         # Add general configuration
         general_config = {}
 
-        # Add idle_cycle configuration from template
-        idle_cycle_config = {}
-        for param_name, param_value in self.idle_cycle_template.items():
-            idle_cycle_config[param_name] = self._handle_param_value(param_value)
+        # Add work_cycle configuration from template
+        work_cycle_config = {}
+        for param_name, param_value in self.work_cycle_template.items():
+            work_cycle_config[param_name] = self._handle_param_value(param_value)
 
         # Initialize behaviours structure
         behaviours_config = {}
@@ -59,7 +59,7 @@ class ConfigGenerator:
         # Build the user behaviour structure according to your BaseModel
         client_config["automation"] = {
             "general": general_config,
-            "idle_cycle": idle_cycle_config,
+            "work_cycle": work_cycle_config,
             "behaviours": behaviours_config,
         }
 

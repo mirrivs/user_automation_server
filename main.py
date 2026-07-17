@@ -1,5 +1,6 @@
 import configparser
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +11,7 @@ from client_behaviour import router as behaviour_router
 from i18n import I18nMiddleware
 
 config = configparser.ConfigParser()
-config.read("config.ini")
+config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"))
 logging.basicConfig(
     level=config["DEFAULT"]["log_level"],
     filename=config["DEFAULT"]["log_file"],
