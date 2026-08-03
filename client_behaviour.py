@@ -192,14 +192,11 @@ async def list_behaviours() -> List[dict]:
 def ensure_behaviour_available(client_username: str, behaviour_id: AvailableBehaviors) -> None:
     """Reject the request if the target client cannot run the behaviour.
 
-    Availability is owned by the client, which reports the behaviours it can run
-    when it connects. The server only enforces that set: if the client reported
-    nothing (older client / unknown) availability is not enforced, but if it did
-    report a set, a behaviour outside it is refused before any command is sent.
+    Availability comes from the workstation's Ansible-rendered toggle map. A
+    behaviour outside that set is refused before any command is sent. Clients
+    that have not reported capabilities fail closed until they are upgraded.
     """
     available = get_reported_behaviours(client_username)
-    if available is None:
-        return
     if behaviour_id.value not in available:
         raise HTTPException(
             status_code=403,
@@ -385,6 +382,48 @@ class WorkCycleResponse(BaseModel):
     action: str
     work_cycle_active: Optional[bool] = None
     clients_notified: int
+
+
+class StopBehaviourResponse(BaseModel):
+    """Response returned after requesting that a client stop its active behaviour."""
+
+    message: str
+    status: str
+    client_username: str
+    clients_notified: int
+
+
+@router.post(
+    "/stop",
+    response_model=StopBehaviourResponse,
+    description="Stop the behaviour currently running on a connected client.",
+    dependencies=[Depends(require_service_token)],
+)
+async def stop_behaviour(client_username: str) -> StopBehaviourResponse:
+    sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
+
+    if not sockets:
+        return StopBehaviourResponse(
+            message=f"Client '{client_username}' is not currently connected",
+            status="error",
+            client_username=client_username,
+            clients_notified=0,
+        )
+
+    for socket in sockets:
+        await socket.send_json({"action": "stop_behaviour"})
+
+    for client in clients_info.values():
+        if client["username"] == client_username:
+            client["current_behaviour"] = None
+    await broadcast_client_status()
+
+    return StopBehaviourResponse(
+        message=f"Successfully stopped the active behaviour on client '{client_username}'",
+        status="success",
+        client_username=client_username,
+        clients_notified=len(sockets),
+    )
 
 
 @router.post(

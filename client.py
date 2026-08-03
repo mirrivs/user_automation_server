@@ -61,6 +61,29 @@ def parse_available_behaviours(raw: str | None) -> list[str] | None:
     return [str(item).strip() for item in parsed if str(item).strip()]
 
 
+def parse_behaviour_toggles(raw: str | None) -> list[str] | None:
+    """Derive enabled behaviour IDs from a client's rendered config toggle map."""
+    if raw is None or raw.strip() == "":
+        return None
+
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        try:
+            parsed = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    # Accept either the toggle map itself or the complete rendered config.yml.
+    toggles = parsed.get("automation", {}).get("behaviour_toggles") if "automation" in parsed else parsed
+    if not isinstance(toggles, dict):
+        return None
+    return sorted(str(behaviour) for behaviour, enabled in toggles.items() if enabled is True)
+
+
 class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
     def __init__(
         self,
@@ -69,6 +92,7 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
         password: Annotated[str, Form()],
         hostname: Annotated[str, Form()],
         available_behaviours: Annotated[str | None, Form()] = None,
+        behaviour_toggles: Annotated[str | None, Form()] = None,
     ):
         super().__init__(
             username=username,
@@ -78,7 +102,11 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
             client_secret=None,
         )
         self.hostname = hostname
-        self.available_behaviours = parse_available_behaviours(available_behaviours)
+        # The rendered toggle map is authoritative. Keep the old explicit list
+        # as a migration fallback for already-deployed clients.
+        self.available_behaviours = parse_behaviour_toggles(behaviour_toggles)
+        if self.available_behaviours is None:
+            self.available_behaviours = parse_available_behaviours(available_behaviours)
 
 
 cwd = os.path.abspath(os.path.dirname(__file__))
@@ -134,9 +162,35 @@ async def send_client_config(websocket, username):
 
 
 async def update_client_config(data, websocket, username):
-    """Update client config"""
-    # Implement your config update logic here
-    pass
+    """Apply a live status update pushed by a connected client.
+
+    Clients push frequent `status_update` messages over this socket to report
+    their current behaviour and work-cycle state. These were previously only
+    logged and discarded, so `clients_info` never reflected client-driven state
+    changes and the dashboard never saw them (it had to fall back to polling
+    the REST client list instead of getting pushed updates).
+    """
+    if not isinstance(data, dict) or data.get("type") != "status_update":
+        return
+
+    hostname = data.get("hostname")
+    client = clients_info.get(hostname)
+    if client is None or client["username"] != username:
+        logging.warning(f"Status update for unknown client hostname '{hostname}' from user {username}")
+        return
+
+    behaviour = data.get("current_behaviour")
+    new_current_behaviour = behaviour.get("id") if isinstance(behaviour, dict) else behaviour
+    new_work_cycle_active = (
+        data["idle_cycle_status"] == "running" if "idle_cycle_status" in data else client["work_cycle_active"]
+    )
+
+    if client["current_behaviour"] == new_current_behaviour and client["work_cycle_active"] == new_work_cycle_active:
+        return
+
+    client["current_behaviour"] = new_current_behaviour
+    client["work_cycle_active"] = new_work_cycle_active
+    await broadcast_client_status()
 
 
 client_status_sockets = SocketManager(
@@ -247,13 +301,13 @@ async def connect_client(
     }
 
 
-def get_reported_behaviours(username: str) -> set[str] | None:
+def get_reported_behaviours(username: str) -> set[str]:
     """Return the set of behaviours a user's connected client(s) reported as available.
 
     When the same user is connected from several hostnames the result is the
     intersection of every reported set, so the server only permits a behaviour
-    that every target client can run. Returns None when no client for the user
-    reported a set (unknown -> availability is not enforced).
+    that every target client can run. Unknown availability fails closed, so an
+    outdated client cannot run every server-known behaviour.
     """
     reported_sets = [
         set(info["available_behaviours"])
@@ -261,7 +315,7 @@ def get_reported_behaviours(username: str) -> set[str] | None:
         if info.get("username") == username and info.get("available_behaviours") is not None
     ]
     if not reported_sets:
-        return None
+        return set()
     return set.intersection(*reported_sets)
 
 
