@@ -47,10 +47,10 @@ def translate(s, lang: str):
 
 def translate_response(response_body: bytes, lang: str) -> bytes:
     try:
-        response = json.loads(response_body.decode())
-    except json.decoder.JSONDecodeError:
+        response = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.decoder.JSONDecodeError):
         return response_body
-    if response and isinstance(response, dict) or (isinstance(response, list) and isinstance(response[0], dict)):
+    if response and isinstance(response, dict) or (response and isinstance(response, list) and isinstance(response[0], dict)):
         return json.dumps(translate(response, lang)).encode("utf-8")
     else:
         return response_body
@@ -63,6 +63,14 @@ def parse_language(lang_header: str) -> str:
 class I18nMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
         response = await call_next(request)
+
+        # Translation applies to structured API responses only. Returning binary
+        # and other non-JSON responses untouched preserves streaming semantics
+        # and prevents PNG bytes from being decoded as UTF-8.
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json" and not content_type.endswith("+json"):
+            return response
+
         response_body = b""
         async for chunk in response.body_iterator:
             response_body += chunk

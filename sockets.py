@@ -38,12 +38,15 @@ class SocketManager:
             await websocket.accept()
             token = await websocket.receive_text()  # receive auth token as first message
             try:
-                username = await self.auth_func(token)
+                identity = await self.auth_func(token)
             except HTTPException:
                 logging.warning(f"Socket {endpoint} attempted connect with invalid token {token}")
                 await self._update_status("Invalid token", websocket)
                 await websocket.close()
                 return
+            # Most sockets authenticate to a username string. Client sockets use a
+            # richer identity carrying the hostname claim from the signed token.
+            username = getattr(identity, "username", identity)
             logging.info(f"Socket {endpoint} connected for user {username}")
             await self._update_status("Connected to socket", websocket)
             self.connected_sockets[websocket] = username
@@ -63,8 +66,14 @@ class SocketManager:
                                 continue
                         else:
                             received_message = await websocket.receive_text()
-                        logging.info(f"Socket {endpoint} for user {username} received message {received_message}")
-                        await receive_func(received_message, websocket, username)
+                        message_kind = received_message.get("type") if isinstance(received_message, dict) else None
+                        logging.info(
+                            "Socket %s for user %s received %s message",
+                            endpoint,
+                            username,
+                            message_kind or "JSON",
+                        )
+                        await receive_func(received_message, websocket, identity)
                     else:
                         # Just keep the connection alive without custom processing
                         received_message = await websocket.receive_json()

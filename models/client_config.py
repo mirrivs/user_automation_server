@@ -51,6 +51,10 @@ class Automation(BaseModel):
     behaviours: Optional[Behaviours] = Field(default=None)
 
 
+class Screenshot(BaseModel):
+    interval_seconds: Optional[float] = Field(default=None, gt=0, description="Seconds between periodic screenshots")
+
+
 class ClientConfig(BaseModel):
     automation: Optional[Automation] = Field(default=None)
-    automation: Optional[Automation] = Field(default=None)
+    screenshot: Optional[Screenshot] = Field(default=None)

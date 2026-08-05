@@ -11,7 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt
 from pydantic import BaseModel
 
-from auth import current_user
+from auth import ClientIdentity, current_client, current_user
 from config_generator import ConfigGenerator
 from hostname import is_valid_hostname
 from models.client_config import ClientConfig
@@ -27,6 +27,9 @@ JWT_EXPIRATION = int(os.getenv("JWT_EXPIRATION", 36000))  # seconds
 config = configparser.ConfigParser()
 config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"))
 
+# Default delivered through the existing generic client-config merge path.
+DEFAULT_SCREENSHOT_INTERVAL_SECONDS = config.getfloat("DEFAULT", "screenshot_default_interval_seconds", fallback=60)
+
 
 class ClientInfo(BaseModel):
     username: str
@@ -37,6 +40,10 @@ class ClientInfo(BaseModel):
     # Behaviours the client reported it can run on /connect. None means the client
     # did not report a set, so the server does not enforce availability for it.
     available_behaviours: list[str] | None = None
+    # Positive capture cadence in seconds delivered to this client.
+    screenshot_interval_seconds: float | None = None
+    # ISO timestamp of the last screenshot the server received from this client.
+    last_screenshot_at: str | None = None
 
 
 def parse_available_behaviours(raw: str | None) -> list[str] | None:
@@ -161,7 +168,7 @@ async def send_client_config(websocket, username):
     pass
 
 
-async def update_client_config(data, websocket, username):
+async def update_client_config(data, websocket, identity: ClientIdentity):
     """Apply a live status update pushed by a connected client.
 
     Clients push frequent `status_update` messages over this socket to report
@@ -170,10 +177,24 @@ async def update_client_config(data, websocket, username):
     changes and the dashboard never saw them (it had to fall back to polling
     the REST client list instead of getting pushed updates).
     """
-    if not isinstance(data, dict) or data.get("type") != "status_update":
+    if not isinstance(data, dict):
         return
 
-    hostname = data.get("hostname")
+    if data.get("type") == "screenshot":
+        # Local import avoids a module cycle: screenshot's admin/read routes use
+        # the client registry maintained in this module.
+        from screenshot import receive_screenshot
+
+        await receive_screenshot(data, identity)
+        return
+
+    if data.get("type") != "status_update":
+        return
+
+    # Socket authentication is authoritative. The payload hostname is merely
+    # informational and must never select another client's record.
+    hostname = identity.hostname
+    username = identity.username
     client = clients_info.get(hostname)
     if client is None or client["username"] != username:
         logging.warning(f"Status update for unknown client hostname '{hostname}' from user {username}")
@@ -201,7 +222,14 @@ client_status_sockets = SocketManager(
     update_client_status,
     auth_func=status_socket_auth,
 )
-client_sockets = SocketManager(router, "/client_socket", True, send_client_config, update_client_config)
+client_sockets = SocketManager(
+    router,
+    "/client_socket",
+    True,
+    send_client_config,
+    update_client_config,
+    auth_func=current_client,
+)
 
 
 async def broadcast_client_status():
@@ -212,6 +240,16 @@ async def broadcast_client_status():
             await websocket.send_json(payload)
         except Exception as ex:  # noqa: BLE001 - a dead subscriber must not abort the broadcast
             logging.warning(f"Dropping status subscriber, send failed: {ex}")
+            client_status_sockets.connected_sockets.pop(websocket, None)
+
+
+async def broadcast_client_screenshot(payload: dict):
+    """Relay one screenshot to connected dashboards without persisting it."""
+    for websocket in list(client_status_sockets.connected_sockets.keys()):
+        try:
+            await websocket.send_json(payload)
+        except Exception as ex:  # noqa: BLE001 - a dead subscriber must not abort delivery
+            logging.warning(f"Dropping status subscriber, screenshot send failed: {ex}")
             client_status_sockets.connected_sockets.pop(websocket, None)
 
 
@@ -277,10 +315,24 @@ async def connect_client(
             "hostname": form_data.hostname,
             "work_cycle_active": None,
             "available_behaviours": form_data.available_behaviours,
+            "screenshot_interval_seconds": DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
+            "last_screenshot_at": None,
         }
     else:
         clients_info[form_data.hostname]["hostname"] = form_data.hostname
         clients_info[form_data.hostname]["available_behaviours"] = form_data.available_behaviours
+
+    # Heal stale in-memory state left by an older server version that used 0 as
+    # its default. The current client protocol only accepts positive numbers.
+    if not clients_info[form_data.hostname].get("screenshot_interval_seconds", 0) > 0:
+        clients_info[form_data.hostname]["screenshot_interval_seconds"] = DEFAULT_SCREENSHOT_INTERVAL_SECONDS
+
+    # The screenshot interval is mutable server-side state (set via the wizard), so it is
+    # re-attached to the generated config on every connect/reconnect rather than only once,
+    # ensuring a restarted client picks up the current setting even without a live socket.
+    clients_info[form_data.hostname]["client_config"]["screenshot"] = {
+        "interval_seconds": clients_info[form_data.hostname]["screenshot_interval_seconds"]
+    }
 
     await broadcast_client_status()
 

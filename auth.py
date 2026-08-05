@@ -111,6 +111,28 @@ async def current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="errors.invalid_auth_token") from e
 
 
+class ClientIdentity(BaseModel):
+    username: str
+    hostname: str
+
+
+async def current_client(token: str = Depends(oauth2_scheme)) -> ClientIdentity:
+    """Authenticate a request using a client's own token, minted by `/client/connect`.
+
+    Unlike `current_user`, this also requires the `hostname` claim that only
+    client tokens carry, so a dashboard user's login token cannot be reused here.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        username = payload.get("sub")
+        hostname = payload.get("hostname")
+        if username is None or hostname is None:
+            raise HTTPException(status_code=401, detail="errors.invalid_auth_token")
+        return ClientIdentity(username=username, hostname=hostname)
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail="errors.invalid_auth_token") from e
+
+
 class User(BaseModel):
     id: int
     username: str
