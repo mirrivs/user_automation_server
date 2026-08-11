@@ -28,7 +28,10 @@ config = configparser.ConfigParser()
 config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"))
 
 # Default delivered through the existing generic client-config merge path.
-DEFAULT_SCREENSHOT_INTERVAL_SECONDS = config.getfloat("DEFAULT", "screenshot_default_interval_seconds", fallback=60)
+DEFAULT_SCREENSHOT_INTERVAL_SECONDS = config.getfloat("DEFAULT", "screenshot_default_interval_seconds", fallback=10)
+CLIENT_OFFLINE_TIMEOUT_SECONDS = config.getfloat("DEFAULT", "client_offline_timeout_seconds", fallback=90)
+if CLIENT_OFFLINE_TIMEOUT_SECONDS <= 0:
+    raise ValueError("client_offline_timeout_seconds must be positive")
 
 # Clients released before capability reporting was added do not include either
 # ``available_behaviours`` or ``behaviour_toggles`` in their /connect request.
@@ -51,6 +54,9 @@ LEGACY_CLIENT_BEHAVIOURS = frozenset(
 class ClientInfo(BaseModel):
     username: str
     hostname: str
+    # A disconnected client remains in the status list so operators can see it
+    # and distinguish it from a machine that has never registered.
+    connected: bool = True
     current_behaviour: str | None
     client_config: ClientConfig
     work_cycle_active: bool | None = None
@@ -61,6 +67,8 @@ class ClientInfo(BaseModel):
     screenshot_interval_seconds: float | None = None
     # ISO timestamp of the last screenshot the server received from this client.
     last_screenshot_at: str | None = None
+    # Unix timestamp of the last authenticated client activity.
+    last_seen_at: float | None = None
 
 
 def parse_available_behaviours(raw: str | None) -> list[str] | None:
@@ -228,6 +236,9 @@ async def update_client_config(data, websocket, identity: ClientIdentity):
         logging.warning(f"Status update for unknown client hostname '{hostname}' from user {username}")
         return
 
+    client["connected"] = True
+    client["last_seen_at"] = time.time()
+
     behaviour = data.get("current_behaviour")
     new_current_behaviour = behaviour.get("id") if isinstance(behaviour, dict) else behaviour
     new_work_cycle_active = (
@@ -292,6 +303,7 @@ def serialised_clients_info() -> list[dict]:
     they remain in memory with ``available_behaviours=None`` until their next
     reconnect, but the dashboard can use the compatibility set immediately.
     """
+    expire_inactive_clients()
     return [
         {
             **client,
@@ -299,6 +311,22 @@ def serialised_clients_info() -> list[dict]:
         }
         for client in clients_info.values()
     ]
+
+
+def expire_inactive_clients(now: float | None = None) -> bool:
+    """Mark inactive clients offline while retaining their dashboard record."""
+    now = time.time() if now is None else now
+    changed = False
+    for client in clients_info.values():
+        last_seen_at = client.get("last_seen_at")
+        if client.get("connected") and (
+            last_seen_at is None or now - last_seen_at >= CLIENT_OFFLINE_TIMEOUT_SECONDS
+        ):
+            client["connected"] = False
+            client["current_behaviour"] = None
+            client["work_cycle_active"] = None
+            changed = True
+    return changed
 
 
 @router.get(
@@ -354,6 +382,7 @@ async def connect_client(
     if form_data.hostname not in clients_info:
         clients_info[form_data.hostname] = {
             "username": form_data.username,
+            "connected": True,
             "current_behaviour": None,
             "client_config": config_generator.generate_config(user["username"]),
             "hostname": form_data.hostname,
@@ -361,9 +390,14 @@ async def connect_client(
             "available_behaviours": reported_or_legacy_behaviours(form_data.available_behaviours),
             "screenshot_interval_seconds": DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
             "last_screenshot_at": None,
+            "last_seen_at": time.time(),
         }
     else:
         clients_info[form_data.hostname]["hostname"] = form_data.hostname
+        clients_info[form_data.hostname]["connected"] = True
+        clients_info[form_data.hostname]["last_seen_at"] = time.time()
+        clients_info[form_data.hostname]["current_behaviour"] = None
+        clients_info[form_data.hostname]["work_cycle_active"] = None
         clients_info[form_data.hostname]["available_behaviours"] = reported_or_legacy_behaviours(
             form_data.available_behaviours
         )
@@ -410,7 +444,7 @@ def get_reported_behaviours(username: str) -> set[str]:
     reported_sets = [
         set(reported_or_legacy_behaviours(info.get("available_behaviours")))
         for info in clients_info.values()
-        if info.get("username") == username
+        if info.get("username") == username and info.get("connected", True)
     ]
     if not reported_sets:
         return set()
@@ -419,9 +453,10 @@ def get_reported_behaviours(username: str) -> set[str]:
 
 @router.delete("/disconnect")
 async def disconnect_client(hostname: str) -> dict:
-    global clients_info
     if hostname in clients_info:
-        del clients_info[hostname]
+        clients_info[hostname]["connected"] = False
+        clients_info[hostname]["current_behaviour"] = None
+        clients_info[hostname]["work_cycle_active"] = None
         await broadcast_client_status()
         return {"message": f"Client {hostname} disconnected"}
     else:

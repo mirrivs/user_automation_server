@@ -103,7 +103,9 @@ async def receive_screenshot(data: dict, identity: ClientIdentity) -> None:
     logging.info(f"Relaying screenshot from {identity.hostname} ({identity.username}), {len(contents)} bytes")
 
     if identity.hostname in clients_info:
+        clients_info[identity.hostname]["connected"] = True
         clients_info[identity.hostname]["last_screenshot_at"] = now.isoformat()
+        clients_info[identity.hostname]["last_seen_at"] = now.timestamp()
         await broadcast_client_screenshot(
             {
                 "type": "screenshot",
