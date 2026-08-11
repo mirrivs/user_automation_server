@@ -30,6 +30,23 @@ config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini
 # Default delivered through the existing generic client-config merge path.
 DEFAULT_SCREENSHOT_INTERVAL_SECONDS = config.getfloat("DEFAULT", "screenshot_default_interval_seconds", fallback=60)
 
+# Clients released before capability reporting was added do not include either
+# ``available_behaviours`` or ``behaviour_toggles`` in their /connect request.
+# These are the behaviour IDs implemented by those clients and supported by
+# this server. Keep the list here (rather than all server enum values) so a
+# legacy client is never offered a server-only behaviour such as
+# ``attack_phishing_attachment``.
+LEGACY_CLIENT_BEHAVIOURS = frozenset(
+    {
+        "attack_phishing",
+        "attack_ransomware",
+        "attack_reverse_shell",
+        "procrastination",
+        "work_emails",
+        "work_organization_web",
+    }
+)
+
 
 class ClientInfo(BaseModel):
     username: str
@@ -37,8 +54,8 @@ class ClientInfo(BaseModel):
     current_behaviour: str | None
     client_config: ClientConfig
     work_cycle_active: bool | None = None
-    # Behaviours the client reported it can run on /connect. None means the client
-    # did not report a set, so the server does not enforce availability for it.
+    # Behaviours the client reported it can run on /connect. Legacy clients that
+    # do not report a set are populated with LEGACY_CLIENT_BEHAVIOURS.
     available_behaviours: list[str] | None = None
     # Positive capture cadence in seconds delivered to this client.
     screenshot_interval_seconds: float | None = None
@@ -51,8 +68,8 @@ def parse_available_behaviours(raw: str | None) -> list[str] | None:
 
     The client reports the behaviours it can run as either a JSON array
     (e.g. '["procrastination", "work_emails"]') or a comma-separated string.
-    Returns None when the client reports nothing, meaning "unknown" (the server
-    then does not enforce availability for that client).
+    Returns None when the client reports nothing; callers map that to the
+    pre-capability-reporting client compatibility set.
     """
     if raw is None or raw.strip() == "":
         return None
@@ -89,6 +106,17 @@ def parse_behaviour_toggles(raw: str | None) -> list[str] | None:
     if not isinstance(toggles, dict):
         return None
     return sorted(str(behaviour) for behaviour, enabled in toggles.items() if enabled is True)
+
+
+def reported_or_legacy_behaviours(reported: list[str] | None) -> list[str]:
+    """Return explicit capabilities, or the known set for pre-reporting clients.
+
+    An empty explicit list is meaningful: it means the client deliberately
+    disabled every behaviour and must not be replaced by the legacy fallback.
+    """
+    if reported is not None:
+        return reported
+    return sorted(LEGACY_CLIENT_BEHAVIOURS)
 
 
 class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
@@ -153,7 +181,7 @@ async def status_socket_auth(token: str) -> str:
 
 async def send_client_status(websocket, identity=None):
     """Send the current client list to a freshly connected status subscriber."""
-    await websocket.send_json({"clients_info": [client for client in clients_info.values()]})
+    await websocket.send_json({"clients_info": serialised_clients_info()})
 
 
 async def update_client_status(data, websocket):
@@ -234,7 +262,7 @@ client_sockets = SocketManager(
 
 async def broadcast_client_status():
     """Push the current client list to every connected status subscriber."""
-    payload = {"clients_info": [client for client in clients_info.values()]}
+    payload = {"clients_info": serialised_clients_info()}
     for websocket in list(client_status_sockets.connected_sockets.keys()):
         try:
             await websocket.send_json(payload)
@@ -257,6 +285,22 @@ class ClientsInfoResponse(BaseModel):
     clients_info: list[ClientInfo]
 
 
+def serialised_clients_info() -> list[dict]:
+    """Return client records with legacy capability reports normalised.
+
+    This also fixes records that were connected before the server was upgraded:
+    they remain in memory with ``available_behaviours=None`` until their next
+    reconnect, but the dashboard can use the compatibility set immediately.
+    """
+    return [
+        {
+            **client,
+            "available_behaviours": reported_or_legacy_behaviours(client.get("available_behaviours")),
+        }
+        for client in clients_info.values()
+    ]
+
+
 @router.get(
     "/",
     response_model=ClientsInfoResponse,
@@ -265,7 +309,7 @@ class ClientsInfoResponse(BaseModel):
     dependencies=[Depends(require_service_token)],
 )
 async def get_client_info() -> ClientInfo:
-    return {"clients_info": [client for client in clients_info.values()]}
+    return {"clients_info": serialised_clients_info()}
 
 
 class ConnectResponse(BaseModel):
@@ -314,13 +358,15 @@ async def connect_client(
             "client_config": config_generator.generate_config(user["username"]),
             "hostname": form_data.hostname,
             "work_cycle_active": None,
-            "available_behaviours": form_data.available_behaviours,
+            "available_behaviours": reported_or_legacy_behaviours(form_data.available_behaviours),
             "screenshot_interval_seconds": DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
             "last_screenshot_at": None,
         }
     else:
         clients_info[form_data.hostname]["hostname"] = form_data.hostname
-        clients_info[form_data.hostname]["available_behaviours"] = form_data.available_behaviours
+        clients_info[form_data.hostname]["available_behaviours"] = reported_or_legacy_behaviours(
+            form_data.available_behaviours
+        )
 
     # Heal stale in-memory state left by an older server version that used 0 as
     # its default. The current client protocol only accepts positive numbers.
@@ -358,13 +404,13 @@ def get_reported_behaviours(username: str) -> set[str]:
 
     When the same user is connected from several hostnames the result is the
     intersection of every reported set, so the server only permits a behaviour
-    that every target client can run. Unknown availability fails closed, so an
-    outdated client cannot run every server-known behaviour.
+    that every target client can run. Pre-reporting clients use the explicit
+    legacy compatibility set assigned at connect time.
     """
     reported_sets = [
-        set(info["available_behaviours"])
+        set(reported_or_legacy_behaviours(info.get("available_behaviours")))
         for info in clients_info.values()
-        if info.get("username") == username and info.get("available_behaviours") is not None
+        if info.get("username") == username
     ]
     if not reported_sets:
         return set()
