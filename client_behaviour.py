@@ -188,6 +188,22 @@ async def list_behaviours() -> List[dict]:
     ]
 
 
+# Helper function to reject requests targeting a user that has never registered with the server
+def ensure_client_known(client_username: str) -> None:
+    """Reject the request if no client has ever reported in as this user.
+
+    Distinct from "not currently connected": that means the user exists but
+    is offline right now, whereas this means the username itself is unknown
+    to the server.
+    """
+    known_username = any(info.get("username") == client_username for info in clients_info.values())
+    if not known_username:
+        raise HTTPException(
+            status_code=404,
+            detail=f"User '{client_username}' does not exist on the server",
+        )
+
+
 # Helper function to enforce client-reported behaviour availability
 def ensure_behaviour_available(client_username: str, behaviour_id: AvailableBehaviors) -> None:
     """Reject the request if the target client cannot run the behaviour.
@@ -196,6 +212,18 @@ def ensure_behaviour_available(client_username: str, behaviour_id: AvailableBeha
     behaviour outside that set is refused before any command is sent. Clients
     that have not reported capabilities fail closed until they are upgraded.
     """
+    ensure_client_known(client_username)
+
+    connected = any(
+        info.get("username") == client_username and info.get("connected", True) for info in clients_info.values()
+    )
+    if not connected:
+        # Client exists but is offline right now, so no reported capability set
+        # is available to check against. Let the caller's own connectivity
+        # check report the accurate "not currently connected" error instead
+        # of a misleading "behaviour not available".
+        return
+
     available = get_reported_behaviours(client_username)
     if behaviour_id.value not in available:
         raise HTTPException(
@@ -400,6 +428,8 @@ class StopBehaviourResponse(BaseModel):
     dependencies=[Depends(require_service_token)],
 )
 async def stop_behaviour(client_username: str) -> StopBehaviourResponse:
+    ensure_client_known(client_username)
+
     sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
 
     if not sockets:
@@ -438,6 +468,8 @@ async def set_work_cycle(client_username: str, action: WorkCycleAction) -> WorkC
     its websocket. Reflects the new state on the tracked client and notifies
     status subscribers.
     """
+    ensure_client_known(client_username)
+
     active = action == WorkCycleAction.START
 
     sockets = [socket for socket, username in client_sockets.connected_sockets.items() if username == client_username]
