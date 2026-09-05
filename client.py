@@ -53,6 +53,9 @@ LEGACY_CLIENT_BEHAVIOURS = frozenset(
 
 class ClientInfo(BaseModel):
     username: str
+    # Human-friendly label reported by the client (signed-in user's full name).
+    # Defaults to ``username`` when the client does not report one.
+    display_name: str | None = None
     hostname: str
     # A disconnected client remains in the status list so operators can see it
     # and distinguish it from a machine that has never registered.
@@ -134,6 +137,9 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
         username: Annotated[str, Form()],
         password: Annotated[str, Form()],
         hostname: Annotated[str, Form()],
+        email: Annotated[str | None, Form()] = None,
+        domain_email: Annotated[str | None, Form()] = None,
+        display_name: Annotated[str | None, Form()] = None,
         available_behaviours: Annotated[str | None, Form()] = None,
         behaviour_toggles: Annotated[str | None, Form()] = None,
     ):
@@ -145,8 +151,11 @@ class OAuth2PasswordRequestFormWithHostname(OAuth2PasswordRequestForm):
             client_secret=None,
         )
         self.hostname = hostname
-        # The rendered toggle map is authoritative. Keep the old explicit list
-        # as a migration fallback for already-deployed clients.
+        self.email = (email or "").strip() or None
+        self.domain_email = (domain_email or "").strip() or None
+        # Human-friendly label the client pulls from the workstation (the signed-in
+        # user's full name). Falls back to the resolved username server-side.
+        self.display_name = (display_name or "").strip() or None
         self.available_behaviours = parse_behaviour_toggles(behaviour_toggles)
         if self.available_behaviours is None:
             self.available_behaviours = parse_available_behaviours(available_behaviours)
@@ -160,12 +169,66 @@ config_generation_file = os.path.join(cwd, "config_generator.yml")
 user_credentials = parse_user_credentials(user_credentials_file)
 
 
-if config.getboolean("DEFAULT", "use_hybrid_mail_domain"):
-    credentials = user_credentials.get("external_user_credentials", [])
-else:
-    credentials = user_credentials.get("internal_user_credentials", [])
+def _mail_local_part(email: str) -> str:
+    """Return the case-folded local part used to pair a user's two mail addresses."""
+    return email.split("@", 1)[0].strip().lower()
 
-available_client_users = {user["username"]: user for user in credentials}
+
+def _build_available_client_users() -> dict[str, dict]:
+    """Index client credentials by *every* address form a user may connect with.
+
+    A user has one mailbox reachable under two addresses that share a local
+    part: the ``mail`` address used by the mail client (``user@kyberakademia.sk``)
+    and the ``domain`` address the domain-controller account authenticates with
+    (``user@corp.kyberakademia.sk``). Previously only one list was honoured,
+    chosen by ``use_hybrid_mail_domain``. Now both address forms authenticate;
+    ``use_hybrid_mail_domain`` only decides which address stays the canonical
+    identity used everywhere else (dashboard label, work_emails sender,
+    behaviour targeting).
+    """
+    mail_creds = user_credentials.get("mail_user_credentials", [])
+    domain_creds = user_credentials.get("domain_user_credentials", [])
+
+    mail_by_local = {_mail_local_part(u["username"]): u for u in mail_creds}
+    domain_by_local = {_mail_local_part(u["username"]): u for u in domain_creds}
+
+    prefer_mail = config.getboolean("DEFAULT", "use_hybrid_mail_domain")
+
+    lookup: dict[str, dict] = {}
+    for local in set(mail_by_local) | set(domain_by_local):
+        mail = mail_by_local.get(local)
+        domain = domain_by_local.get(local)
+        ordered = [mail, domain] if prefer_mail else [domain, mail]
+        canonical = next(entry["username"] for entry in ordered if entry)
+        for entry in (mail, domain):
+            if entry:
+                lookup[entry["username"]] = {
+                    "username": canonical,
+                    "email": mail["username"] if mail else None,
+                    "domain_email": domain["username"] if domain else None,
+                    "password": entry["password"],
+                }
+    return lookup
+
+
+available_client_users = _build_available_client_users()
+
+
+def resolve_client_user(username: str, password: str, *extra_emails: str | None) -> dict | None:
+    """Authenticate a connecting client against any of its known address forms.
+
+    ``username`` (which may itself be either address form) plus any additional
+    addresses the client supplied are tried in turn; the first whose stored
+    password matches wins. Returns the canonical user record, or ``None``.
+    """
+    for candidate in (username, *extra_emails):
+        if not candidate:
+            continue
+        record = available_client_users.get(candidate)
+        if record is not None and password == record["password"]:
+            return record
+    return None
+
 
 clients_info: dict[str, ClientInfo] = {}
 
@@ -368,20 +431,22 @@ async def connect_client(
         logging.warning(f"Invalid hostname '{form_data.hostname}' for user {form_data.username}")
         raise HTTPException(status_code=400, detail="errors.invalid_hostname")
 
-    if not (
-        form_data.username in available_client_users.keys()
-        and form_data.password == available_client_users[form_data.username]["password"]
-    ):
+    user = resolve_client_user(
+        form_data.username,
+        form_data.password,
+        form_data.email,
+        form_data.domain_email,
+    )
+    if user is None:
         logging.warning(f"Invalid login attempt from user {form_data.username} with hostname {form_data.hostname}")
         raise HTTPException(status_code=401, detail="errors.invalid_username_or_password")
 
-    logging.info(f"User {form_data.username} logged in from hostname {form_data.hostname}")
-
-    user = available_client_users[form_data.username]
+    logging.info(f"User {user['username']} logged in from hostname {form_data.hostname}")
 
     if form_data.hostname not in clients_info:
         clients_info[form_data.hostname] = {
-            "username": form_data.username,
+            "username": user["username"],
+            "display_name": form_data.display_name or user["username"],
             "connected": True,
             "current_behaviour": None,
             "client_config": config_generator.generate_config(user["username"]),
@@ -393,6 +458,13 @@ async def connect_client(
             "last_seen_at": time.time(),
         }
     else:
+        clients_info[form_data.hostname]["username"] = user["username"]
+        # Keep a previously reported label if this reconnect omits one.
+        clients_info[form_data.hostname]["display_name"] = (
+            form_data.display_name
+            or clients_info[form_data.hostname].get("display_name")
+            or user["username"]
+        )
         clients_info[form_data.hostname]["hostname"] = form_data.hostname
         clients_info[form_data.hostname]["connected"] = True
         clients_info[form_data.hostname]["last_seen_at"] = time.time()
