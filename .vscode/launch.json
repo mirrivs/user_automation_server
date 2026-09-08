@@ -18,6 +18,7 @@
                 "8001"
             ],
             "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
             "jinja": true,
             "justMyCode": true,
             "env": {

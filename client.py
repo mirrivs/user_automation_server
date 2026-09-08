@@ -186,7 +186,7 @@ def _build_available_client_users() -> dict[str, dict]:
     identity used everywhere else (dashboard label, work_emails sender,
     behaviour targeting).
     """
-    mail_creds = user_credentials.get("mail_user_credentials", [])
+    mail_creds = user_credentials.get("email_user_credentials", [])
     domain_creds = user_credentials.get("domain_user_credentials", [])
 
     mail_by_local = {_mail_local_part(u["username"]): u for u in mail_creds}
